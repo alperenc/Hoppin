@@ -1,0 +1,236 @@
+import { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { checkinVisibilityLabel, followProfile, getCurrentProfile, getFollowCounts, getFollowedProfiles, getProfileByUsernameOrId, listPublicProfileCheckins, unfollowProfile } from '@/src/lib/hoppin';
+import { Checkin, Profile } from '@/src/types/hoppin';
+
+export default function PublicProfile() {
+  const router = useRouter();
+  const params = useLocalSearchParams<{ slug?: string }>();
+  const slug = Array.isArray(params.slug) ? params.slug[0] : params.slug;
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [me, setMe] = useState<Profile | null>(null);
+  const [followers, setFollowers] = useState(0);
+  const [following, setFollowing] = useState(0);
+  const [checkins, setCheckins] = useState<Checkin[]>([]);
+  const [isFollowingProfile, setIsFollowingProfile] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const isMounted = useRef(true);
+
+  useEffect(() => {
+    isMounted.current = true;
+
+    const load = async () => {
+      if (!slug) {
+        throw new Error('Missing profile slug.');
+      }
+
+      const [targetProfile, currentProfile] = await Promise.all([getProfileByUsernameOrId(slug), getCurrentProfile()]);
+      if (!targetProfile) {
+        throw new Error('Profile not found.');
+      }
+
+      const [countSet, publicFeed, followed] = await Promise.all([
+        getFollowCounts(targetProfile.id),
+        listPublicProfileCheckins(targetProfile.id),
+        targetProfile.id !== currentProfile.id ? getFollowedProfiles(currentProfile.id) : Promise.resolve([]),
+      ]);
+
+      if (!isMounted.current) return;
+      const nextIsFollowing = targetProfile.id !== currentProfile.id && followed.some((entry) => entry.id === targetProfile.id);
+
+      setProfile(targetProfile);
+      setMe(currentProfile);
+      setFollowers(countSet.followers);
+      setFollowing(countSet.following);
+      setCheckins(publicFeed);
+      setIsFollowingProfile(nextIsFollowing);
+      setLoading(false);
+    };
+
+    load().catch(() => {
+      if (isMounted.current) {
+        router.replace('/discover');
+      }
+    });
+
+    return () => {
+      isMounted.current = false;
+    };
+  }, [slug, router]);
+
+  const toggleFollow = async () => {
+    if (!me || !profile || me.id === profile.id) return;
+
+    const nextFollowing = !isFollowingProfile;
+    try {
+      if (nextFollowing) {
+        await followProfile(me.id, profile.id);
+      } else {
+        await unfollowProfile(me.id, profile.id);
+      }
+
+      const [updatedCounts, followed] = await Promise.all([
+        getFollowCounts(profile.id),
+        getFollowedProfiles(me.id),
+      ]);
+      if (isMounted.current) {
+        setFollowers(updatedCounts.followers);
+        setFollowing(updatedCounts.following);
+        setIsFollowingProfile(followed.some((entry) => entry.id === profile.id));
+      }
+    } catch {
+      Alert.alert('Follow failed', 'Please try again in a moment.');
+    }
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingWrap}>
+        <ActivityIndicator size="large" color="#60a5fa" />
+      </View>
+    );
+  }
+
+  if (!profile) {
+    return (
+      <View style={styles.loadingWrap}>
+        <Text style={styles.empty}>Profile not found.</Text>
+      </View>
+    );
+  }
+
+  const isOwnProfile = me?.id === profile.id;
+
+  return (
+    <View style={styles.container}>
+      <Text style={styles.title}>{profile.displayName}</Text>
+      <Text style={styles.subtitle}>
+        @{profile.username} · {profile.isCreator ? 'influencer profile' : 'explorer profile'}
+      </Text>
+      <View style={styles.metrics}>
+        <Text style={styles.metricLabel}>Followers: {followers}</Text>
+        <Text style={styles.metricLabel}>Following: {following}</Text>
+        <Text style={styles.metricLabel}>Check-ins: {checkins.length}</Text>
+      </View>
+
+      {!isOwnProfile ? (
+        <TouchableOpacity
+          onPress={toggleFollow}
+          style={[styles.cta, isFollowingProfile ? styles.followingButton : styles.secondary]}
+        >
+          <Text style={styles.ctaText}>{isFollowingProfile ? 'Following' : 'Follow'}</Text>
+        </TouchableOpacity>
+      ) : null}
+
+      <Text style={styles.sectionTitle}>Public check-ins</Text>
+      {checkins.length === 0 ? (
+        <Text style={styles.empty}>No public check-ins to show yet.</Text>
+      ) : (
+        <FlatList
+          data={checkins}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item: checkin }) => (
+            <View style={styles.card}>
+              <Text style={styles.cardHeader}>{checkin.beer.name}</Text>
+              <Text style={styles.cardTag}>
+                {checkin.scope === 'venue' ? 'Venue' : 'City'} · {checkinVisibilityLabel(checkin.privacy)}
+              </Text>
+              <Text style={styles.cardMeta}>
+                {checkin.scope === 'venue' && checkin.venue ? `${checkin.venue.name} · ${checkin.venue.city}` : `${checkin.city?.city}, ${checkin.city?.country}`}
+              </Text>
+              {!!checkin.rating ? <Text style={styles.cardMeta}>Rating: {checkin.rating}/5</Text> : null}
+              {!!checkin.note ? <Text style={styles.note}>{checkin.note}</Text> : null}
+            </View>
+          )}
+        />
+      )}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  loadingWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#071022',
+    padding: 16,
+  },
+  empty: {
+    color: '#94a3b8',
+    textAlign: 'center',
+  },
+  container: {
+    flex: 1,
+    backgroundColor: '#071022',
+    padding: 16,
+    paddingTop: 48,
+  },
+  title: {
+    color: '#f8fafc',
+    fontSize: 28,
+    fontWeight: '700',
+  },
+  subtitle: {
+    color: '#94a3b8',
+    marginTop: 8,
+  },
+  metrics: {
+    marginTop: 16,
+    gap: 4,
+  },
+  metricLabel: {
+    color: '#e2e8f0',
+    marginBottom: 4,
+  },
+  cta: {
+    marginTop: 20,
+    backgroundColor: '#2563eb',
+    borderRadius: 10,
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  secondary: {
+    marginTop: 20,
+    backgroundColor: '#334155',
+  },
+  followingButton: {
+    backgroundColor: '#0f766e',
+  },
+  ctaText: {
+    color: '#f8fafc',
+    fontWeight: '700',
+  },
+  sectionTitle: {
+    marginTop: 20,
+    marginBottom: 6,
+    color: '#e2e8f0',
+    fontWeight: '700',
+    fontSize: 18,
+  },
+  card: {
+    backgroundColor: '#111b34',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+  },
+  cardHeader: {
+    color: '#f8fafc',
+    fontWeight: '700',
+    fontSize: 18,
+  },
+  cardTag: {
+    color: '#60a5fa',
+    marginTop: 6,
+    marginBottom: 2,
+  },
+  cardMeta: {
+    color: '#94a3b8',
+    marginTop: 4,
+  },
+  note: {
+    color: '#cbd5e1',
+    marginTop: 8,
+  },
+});
