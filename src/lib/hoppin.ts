@@ -1,0 +1,1762 @@
+import { BeerStyle, Checkin, CityLocation, CityStamp, CityVisit, CityVisitor, Follow, FollowFeedItem, PassportSummary, Profile, CheckinScope, PrivacyLevel, Venue } from '@/src/types/hoppin';
+import { isSupabaseConfigured, supabase } from '@/src/lib/supabase';
+
+type Id = string;
+
+type DbBeer = {
+  id: Id;
+  name: string;
+  style: BeerStyle;
+  abv: number | string | null;
+  ibu: number | string | null;
+  brewery_id: string | null;
+  created_at: string;
+  created_by: string | null;
+};
+
+type MockBeer = DbBeer & {
+  createdBy: Id;
+  createdAt: string;
+  breweryName?: string;
+};
+
+type CreateCheckinInput = {
+  beerName: string;
+  style: BeerStyle;
+  breweryName?: string;
+  scope: CheckinScope;
+  privacy: PrivacyLevel;
+  note?: string;
+  rating?: number;
+  venueName?: string;
+  city: string;
+  country: string;
+  lat: number;
+  lng: number;
+};
+
+type DbProfile = {
+  id: string;
+  username: string;
+  display_name: string;
+  avatar_url: string | null;
+  is_creator: boolean;
+  created_at: string;
+};
+
+type DbCity = {
+  id: string;
+  city: string;
+  country: string;
+  latitude: number | string;
+  longitude: number | string;
+};
+
+type DbBrewery = {
+  id: string;
+  name: string;
+};
+
+type DbVenue = {
+  id: string;
+  name: string;
+  country: string | null;
+  latitude: number | string;
+  longitude: number | string;
+  city_id: string | null;
+  city?: {
+    city: string;
+    country: string | null;
+  } | null;
+};
+
+type DbFollowFeedRow = {
+  checkin_id: string;
+  profile_id: string;
+  scope: CheckinScope;
+  privacy: PrivacyLevel;
+  checked_at: string;
+  rating: number | null;
+  note: string | null;
+  photo_urls: string[] | null;
+  beer_id: string;
+  beer_name: string;
+  beer_style: BeerStyle;
+  beer_abv: number | string | null;
+  beer_ibu: number | string | null;
+  beer_brewery: DbBrewery | null;
+  city: string | null;
+  country: string | null;
+  latitude: number | string | null;
+  longitude: number | string | null;
+  venue_id: string | null;
+  venue_name: string | null;
+  author_profile: {
+    id: string;
+    username: string;
+    displayName: string;
+    avatarUrl: string | null;
+    isCreator: boolean;
+    createdAt: string;
+  };
+  is_followed: boolean;
+};
+
+type DbPassportTopStyle = {
+  style: BeerStyle;
+  count: number | string;
+};
+
+type DbProfileCheckinCity = {
+  city: string | null;
+  country: string | null;
+  latitude: number | string | null;
+  longitude: number | string | null;
+};
+
+type DbProfileCheckinVenue = {
+  id: string;
+  name: string;
+  country: string | null;
+  latitude: number | string;
+  longitude: number | string;
+  city_id: string | null;
+};
+
+type DbProfileCheckinBeer = {
+  id: string;
+  name: string;
+  style: BeerStyle;
+  abv: number | string | null;
+  ibu: number | string | null;
+  brewery_id: string | null;
+  created_by: string | null;
+  created_at: string;
+};
+
+type DbProfileCheckinRow = {
+  id: string;
+  profile_id: string;
+  scope: CheckinScope;
+  privacy: PrivacyLevel;
+  checked_at: string;
+  rating: number | string | null;
+  note: string | null;
+  photo_urls: string[] | null;
+  cities?: DbProfileCheckinCity[] | DbProfileCheckinCity | null;
+  venues?: DbProfileCheckinVenue[] | DbProfileCheckinVenue | null;
+  beers?: DbProfileCheckinBeer[] | DbProfileCheckinBeer | null;
+};
+
+type DbSnapshotProfile = {
+  id: string;
+  username: string;
+  display_name: string;
+  avatar_url: string | null;
+  is_creator: boolean;
+  created_at: string;
+};
+
+type DbSnapshotCity = {
+  city: string | null;
+  country: string | null;
+};
+
+type DbSnapshotVenue = {
+  city_id: string | null;
+  city?: {
+    city: string;
+    country: string;
+  } | { city: string; country: string }[] | null;
+};
+
+type DbCitySnapshotRow = {
+  profile_id: string;
+  checked_at: string;
+  scope: CheckinScope;
+  cities?: DbSnapshotCity[] | DbSnapshotCity | null;
+  venues?: DbSnapshotVenue[] | DbSnapshotVenue | null;
+  profiles?: DbSnapshotProfile[] | DbSnapshotProfile | null;
+};
+
+type DbCityStamp = {
+  city: string | null;
+  country: string | null;
+  latitude: number | string;
+  longitude: number | string;
+  checkin_count: number | string;
+  last_visited_at: string;
+};
+
+const now = () => new Date().toISOString();
+
+const profilesSeed: Profile[] = [
+  {
+    id: '00000000-0000-0000-0000-000000000001',
+    username: 'ale_mixed',
+    displayName: 'Alex Pilsner',
+    isCreator: true,
+    createdAt: '2026-01-08T12:00:00Z',
+  },
+  {
+    id: '00000000-0000-0000-0000-000000000002',
+    username: 'rio_runner',
+    displayName: 'Rio',
+    isCreator: false,
+    createdAt: '2026-02-10T13:00:00Z',
+  },
+  {
+    id: '00000000-0000-0000-0000-000000000003',
+    username: 'ava_travel',
+    displayName: 'Ava Hopper',
+    isCreator: true,
+    createdAt: '2026-03-01T08:20:00Z',
+  },
+];
+
+const followsSeed: Follow[] = [
+  { followerId: profilesSeed[0].id, followingId: profilesSeed[2].id, followedAt: '2026-03-16T09:30:00Z' },
+];
+
+const beersSeed: MockBeer[] = [
+  {
+    id: 'beer_ipa_1',
+    name: 'Cloud Lift IPA',
+    style: 'ipa',
+    abv: 6.8,
+    ibu: 60,
+    createdBy: profilesSeed[0].id,
+    brewery_id: null,
+    created_at: '2026-01-12T10:00:00Z',
+    created_by: profilesSeed[0].id,
+    createdAt: '2026-01-12T10:00:00Z',
+    breweryName: 'North Point Brewing',
+  },
+  {
+    id: 'beer_stout_1',
+    name: 'Midnight Grain Stout',
+    style: 'stout',
+    abv: 7.2,
+    ibu: 70,
+    createdBy: profilesSeed[0].id,
+    brewery_id: null,
+    created_at: '2026-02-01T11:00:00Z',
+    created_by: profilesSeed[0].id,
+    createdAt: '2026-02-01T11:00:00Z',
+    breweryName: 'Cloud Gate Brewery',
+  },
+  {
+    id: 'beer_triple_1',
+    name: 'Bridges Triple',
+    style: 'other',
+    abv: 8.4,
+    ibu: 28,
+    createdBy: profilesSeed[1].id,
+    brewery_id: null,
+    created_at: '2026-03-17T12:00:00Z',
+    created_by: profilesSeed[1].id,
+    createdAt: '2026-03-17T12:00:00Z',
+    breweryName: 'Bridges & Co.',
+  },
+];
+
+const citiesSeed: CityLocation[] = [
+  { city: 'Chicago', country: 'USA', lat: 41.8781, lng: -87.6298 },
+  { city: 'Berlin', country: 'Germany', lat: 52.52, lng: 13.405 },
+];
+
+const venuesSeed: Venue[] = [
+  {
+    id: 'venue_chi_1',
+    name: 'Magnolia Public House',
+    city: 'Chicago',
+    country: 'USA',
+    provider: 'google',
+    lat: 41.8781,
+    lng: -87.6298,
+  },
+  {
+    id: 'venue_berlin_1',
+    name: 'Kreuzberg Taproom',
+    city: 'Berlin',
+    country: 'Germany',
+    provider: 'google',
+    lat: 52.495,
+    lng: 13.377,
+  },
+];
+
+let profiles = [...profilesSeed];
+let follows = [...followsSeed];
+let beers = [...beersSeed];
+let cities = [...citiesSeed];
+let venues = [...venuesSeed];
+
+let checkins: Checkin[] = [
+  {
+    id: 'checkin_1',
+    profileId: profilesSeed[1].id,
+    beer: normalizeBeer(beersSeed[0]),
+    scope: 'venue',
+    venue: venues[0],
+    checkedAt: '2026-05-10T20:12:00Z',
+    privacy: 'followers',
+    rating: 4,
+    note: 'Dry citrus nose, crisp finish.',
+    media: [],
+  },
+  {
+    id: 'checkin_2',
+    profileId: profilesSeed[0].id,
+    beer: normalizeBeer(beersSeed[1]),
+    scope: 'city',
+    city: cities[1],
+    checkedAt: '2026-05-11T21:02:00Z',
+    privacy: 'public',
+    rating: 5,
+    note: 'Late-night trip memory.',
+    media: [],
+  },
+];
+
+const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const useSupabase = () => isSupabaseConfigured;
+
+export const CURRENT_USER_ID = profilesSeed[0].id;
+
+function sanitizeUsername(raw: string): string {
+  const normalized = raw
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+
+  return normalized.slice(0, 36) || `user_${raw.slice(0, 8).toLowerCase()}`;
+}
+
+function buildProfileFromAuthUser(user: {
+  id: string;
+  email?: string | null;
+  user_metadata?: {
+    full_name?: string | null;
+    name?: string | null;
+    avatar_url?: string | null;
+  };
+}) {
+  const localPart = user.email?.split('@')[0]?.toLowerCase() ?? user.id.split('-')[0];
+  const displayName = user.user_metadata?.full_name ?? user.user_metadata?.name ?? localPart ?? 'Hoppin User';
+
+  return {
+    username: sanitizeUsername(`${localPart}_${user.id.slice(0, 8)}`),
+    displayName,
+    avatarUrl: user.user_metadata?.avatar_url ?? null,
+  };
+}
+
+async function getAuthenticatedSessionUser() {
+  if (!useSupabase()) return null;
+
+  const { data, error } = await supabase.auth.getSession();
+  if (error) {
+    return null;
+  }
+
+  return data.session?.user ?? null;
+}
+
+async function canUseSupabaseBackend(): Promise<boolean> {
+  const sessionUser = await getAuthenticatedSessionUser();
+  return Boolean(sessionUser);
+}
+
+async function resolveProfileId(profileId?: Id): Promise<Id> {
+  if (profileId) {
+    return profileId;
+  }
+
+  const sessionUser = await getAuthenticatedSessionUser();
+  return sessionUser?.id ?? CURRENT_USER_ID;
+}
+
+export const checkinVisibilityLabel = (privacy: PrivacyLevel): string => {
+  if (privacy === 'followers') return 'Followers';
+  if (privacy === 'public') return 'Public';
+  return 'Private';
+};
+
+export function cityStampKey(city: CityLocation): string {
+  return `${city.city.toLowerCase()}-${city.country.toLowerCase()}`;
+}
+
+function toNumber(value: number | string | null | undefined): number | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
+  const normalized = Number(value);
+  return Number.isFinite(normalized) ? normalized : undefined;
+}
+
+function toInt(value: number | string | null | undefined): number | undefined {
+  const num = toNumber(value);
+  return num === undefined ? undefined : Math.round(num);
+}
+
+function normalizeText(value: string): string {
+  return value.trim();
+}
+
+function normalizeBeer(beer: MockBeer) {
+  return {
+    id: beer.id,
+    name: beer.name,
+    style: beer.style,
+    abv: toNumber(beer.abv),
+    ibu: toInt(beer.ibu),
+    brewery: beer.breweryName
+      ? {
+          id: `brew_${beer.breweryName.toLowerCase().replaceAll(' ', '_')}`,
+          name: beer.breweryName,
+        }
+      : undefined,
+    createdBy: beer.createdBy,
+    createdAt: beer.createdAt,
+  };
+}
+
+function normalizeRating(rawRating?: number): number | undefined {
+  if (typeof rawRating !== 'number' || Number.isNaN(rawRating)) return undefined;
+  const rounded = Math.round(rawRating);
+  if (rounded < 1 || rounded > 5) return undefined;
+  return rounded;
+}
+
+function toProfile(row: DbProfile): Profile {
+  return {
+    id: row.id,
+    username: row.username,
+    displayName: row.display_name,
+    avatarUrl: row.avatar_url ?? undefined,
+    isCreator: row.is_creator,
+    createdAt: row.created_at,
+  };
+}
+
+function mapDbFollowFeed(row: DbFollowFeedRow): FollowFeedItem {
+  const author = {
+    id: row.author_profile.id,
+    username: row.author_profile.username,
+    displayName: row.author_profile.displayName,
+    avatarUrl: row.author_profile.avatarUrl ?? undefined,
+    isCreator: row.author_profile.isCreator,
+    createdAt: row.author_profile.createdAt,
+  };
+  const city = row.scope === 'city' ? row.city : null;
+  const country = row.scope === 'city' ? row.country : row.country;
+  const latitude = toNumber(row.latitude) ?? 0;
+  const longitude = toNumber(row.longitude) ?? 0;
+  const location = city || country || latitude || longitude
+    ? ({
+        city: city ?? 'Unknown',
+        country: country ?? 'Unknown',
+        lat: latitude,
+        lng: longitude,
+      } as CityLocation)
+    : undefined;
+  return {
+    checkin: {
+      id: row.checkin_id,
+      profileId: row.profile_id,
+      beer: {
+        id: row.beer_id,
+        name: row.beer_name,
+        style: row.beer_style,
+        abv: toNumber(row.beer_abv),
+        ibu: toInt(row.beer_ibu),
+        brewery: row.beer_brewery ? { id: row.beer_brewery.id, name: row.beer_brewery.name } : undefined,
+        createdBy: row.profile_id,
+        createdAt: row.checked_at,
+      },
+      scope: row.scope,
+      city: row.scope === 'city' ? location : undefined,
+      venue:
+        row.scope === 'venue'
+          ? {
+              id: row.venue_id ?? `venue_${row.checkin_id}`,
+              name: row.venue_name ?? 'Unknown venue',
+              city: location?.city ?? 'Unknown',
+              country: location?.country ?? 'Unknown',
+              provider: 'user',
+              lat: location?.lat ?? 0,
+              lng: location?.lng ?? 0,
+            }
+          : undefined,
+      checkedAt: row.checked_at,
+      privacy: row.privacy,
+      rating: normalizeRating(row.rating ?? undefined),
+      note: row.note ?? undefined,
+      media: row.photo_urls ?? [],
+    },
+    author,
+    followed: Boolean(row.is_followed),
+  };
+}
+
+function mapDbProfileCheckin(row: DbProfileCheckinRow, venueCityById: Map<string, DbCity>, breweriesById: Map<string, DbBrewery>): Checkin {
+  const cities = Array.isArray(row.cities) ? row.cities[0] : row.cities;
+  const venues = Array.isArray(row.venues) ? row.venues[0] : row.venues;
+  const beers = Array.isArray(row.beers) ? row.beers[0] : row.beers;
+  const scopeCity = cities && row.scope === 'city' ? cities : null;
+  const venueCity = venues?.city_id ? venueCityById.get(venues.city_id) : null;
+  const brewery = beers?.brewery_id ? breweriesById.get(beers.brewery_id) : null;
+
+  return {
+    id: row.id,
+    profileId: row.profile_id,
+    beer: {
+      id: beers?.id ?? '',
+      name: beers?.name ?? 'Unknown beer',
+      style: beers?.style ?? 'other',
+      abv: toNumber(beers?.abv ?? null),
+      ibu: toInt(beers?.ibu ?? null),
+      brewery: brewery ? { id: brewery.id, name: brewery.name } : undefined,
+      createdBy: beers?.created_by ?? '',
+      createdAt: beers?.created_at ?? now(),
+    },
+    scope: row.scope,
+    city:
+      row.scope === 'city'
+        ? {
+            city: scopeCity?.city ?? 'Unknown',
+            country: scopeCity?.country ?? 'Unknown',
+            lat: toNumber(scopeCity?.latitude) ?? 0,
+            lng: toNumber(scopeCity?.longitude) ?? 0,
+          }
+        : undefined,
+    venue:
+      row.scope === 'venue' && row.venues
+        ? {
+            id: venues?.id ?? '',
+            name: venues?.name ?? 'Unknown venue',
+            city: venueCity?.city ?? 'Unknown',
+            country: venues?.country ?? venueCity?.country ?? 'Unknown',
+            provider: 'user',
+            lat: toNumber(venues?.latitude) ?? 0,
+            lng: toNumber(venues?.longitude) ?? 0,
+          }
+        : undefined,
+    checkedAt: row.checked_at,
+    privacy: row.privacy,
+    rating: normalizeRating(toNumber(row.rating)),
+    note: row.note ?? undefined,
+    media: row.photo_urls ?? [],
+  };
+}
+
+function snapshotCityFromRaw(scope: CheckinScope, cities?: DbSnapshotCity[] | DbSnapshotCity | null, venues?: DbSnapshotVenue[] | DbSnapshotVenue | null): CityLocation | null {
+  const cityRow = Array.isArray(cities) ? cities[0] : cities;
+  const venueRow = Array.isArray(venues) ? venues[0] : venues;
+  const venueCity =
+    venueRow?.city && !Array.isArray(venueRow.city)
+      ? venueRow.city
+      : Array.isArray(venueRow?.city)
+        ? venueRow.city[0]
+        : null;
+
+  if (scope === 'city' && cityRow?.city && cityRow?.country) {
+    return {
+      city: cityRow.city,
+      country: cityRow.country,
+      lat: 0,
+      lng: 0,
+    };
+  }
+
+  if (scope === 'venue' && venueCity?.city && venueCity?.country) {
+    return {
+      city: venueCity.city,
+      country: venueCity.country,
+      lat: 0,
+      lng: 0,
+    };
+  }
+
+  return null;
+}
+
+function normalizeCityMatch(city: string, country: string): { city: string; country: string } {
+  return {
+    city: city.trim(),
+    country: country.trim(),
+  };
+}
+
+function citySnapshotProfile(row: DbCitySnapshotRow): Profile | null {
+  const profileRow = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
+  if (!profileRow) return null;
+  return toProfile(profileRow);
+}
+
+type FeedScoringContext = {
+  followedProfileIds: Set<string>;
+  preferredCountries: Set<string>;
+  preferredStyles: Set<BeerStyle>;
+};
+
+function scoreFeedItem(item: FollowFeedItem, context: FeedScoringContext): number {
+  let score = 0;
+  if (context.followedProfileIds.has(item.checkin.profileId) || item.followed) {
+    score += 1000;
+  }
+
+  const tripCountry = item.checkin.city?.country ?? item.checkin.venue?.country;
+  if (tripCountry && context.preferredCountries.has(tripCountry.toLowerCase().trim())) {
+    score += 30;
+  }
+
+  if (context.preferredStyles.has(item.checkin.beer.style)) {
+    score += 12;
+  }
+
+  return score;
+}
+
+function topStylesFromSummary(summary: PassportSummary, limit = 3): Set<BeerStyle> {
+  return new Set(summary.topStyles.slice(0, limit).map((entry) => entry.style));
+}
+
+function mapDbPassportSummary(row?: { checkins_count: number | string | null; cities_count: number | string | null; countries_count: number | string | null; unique_beers_count: number | string | null; unique_breweries_count: number | string | null } | null): PassportSummary {
+  return {
+    checkinsCount: toInt(row?.checkins_count) ?? 0,
+    citiesCount: toInt(row?.cities_count) ?? 0,
+    countriesCount: toInt(row?.countries_count) ?? 0,
+    uniqueBeersCount: toInt(row?.unique_beers_count) ?? 0,
+    uniqueBreweriesCount: toInt(row?.unique_breweries_count) ?? 0,
+    topStyles: [],
+  };
+}
+
+async function fallbackProfileFromSeed(profileId: Id): Promise<Profile | null> {
+  return profiles.find((profile) => profile.id === profileId) ?? null;
+}
+
+async function getProfileFromSupabase(profileId: Id): Promise<Profile | null> {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id,username,display_name,avatar_url,is_creator,created_at')
+    .eq('id', profileId)
+    .maybeSingle();
+
+  if (error) {
+    if (error.code === 'PGRST116') {
+      return null;
+    }
+    throw new Error(error.message);
+  }
+
+  if (!data) return null;
+  return toProfile(data);
+}
+
+async function getProfilesFromSupabase(ids?: Id[]): Promise<Profile[]> {
+  let query = supabase.from('profiles').select('id,username,display_name,avatar_url,is_creator,created_at');
+
+  if (ids && ids.length > 0) {
+    const { data, error } = await query.in('id', ids).order('display_name');
+    if (error) throw new Error(error.message);
+    return (data ?? []).map(toProfile);
+  }
+
+  const { data, error } = await query.order('display_name');
+  if (error) throw new Error(error.message);
+  return (data ?? []).map(toProfile);
+}
+
+async function getCurrentProfileOrSeed(profileId?: Id): Promise<Profile> {
+  const resolvedProfileId = await resolveProfileId(profileId);
+
+  if (await canUseSupabaseBackend()) {
+    const profile = await getProfileFromSupabase(resolvedProfileId);
+    if (profile) {
+      return profile;
+    }
+
+    const sessionUser = await getAuthenticatedSessionUser();
+    if (sessionUser && sessionUser.id === resolvedProfileId) {
+      const built = buildProfileFromAuthUser(sessionUser);
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .upsert(
+          {
+            id: sessionUser.id,
+            username: built.username,
+            display_name: built.displayName,
+            avatar_url: built.avatarUrl,
+            is_creator: false,
+          },
+          { onConflict: 'id' }
+        )
+        .select('id,username,display_name,avatar_url,is_creator,created_at')
+        .single();
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      return toProfile(data);
+    }
+  }
+
+  const fallbackProfile = await fallbackProfileFromSeed(resolvedProfileId);
+  if (fallbackProfile) {
+    return fallbackProfile;
+  }
+
+  if (!uuidRegex.test(resolvedProfileId)) {
+    throw new Error('Current profile id is not a valid UUID for Supabase mode.');
+  }
+
+  throw new Error('Current profile not found.');
+}
+
+export async function setProfileCreatorRole(profileId: Id, isCreator: boolean): Promise<Profile> {
+  const resolvedProfileId = await resolveProfileId(profileId);
+
+  if (!(await canUseSupabaseBackend())) {
+    const existing = profiles.find((profile) => profile.id === resolvedProfileId);
+    if (!existing) {
+      throw new Error('Profile not found.');
+    }
+    profiles = profiles.map((profile) =>
+      profile.id === resolvedProfileId
+        ? {
+            ...profile,
+            isCreator,
+          }
+        : profile
+    );
+    return {
+      ...existing,
+      isCreator,
+    };
+  }
+
+  if (!uuidRegex.test(resolvedProfileId)) {
+    throw new Error('Profile id is not a valid UUID.');
+  }
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .update({ is_creator: isCreator })
+    .eq('id', resolvedProfileId)
+    .select('id,username,display_name,avatar_url,is_creator,created_at')
+    .single();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return toProfile(data);
+}
+
+async function findOrCreateCity(city: string, country: string, lat: number, lng: number): Promise<DbCity> {
+  if (!useSupabase()) {
+    const existing = cities.find((entry) => entry.city.toLowerCase() === city.toLowerCase() && entry.country.toLowerCase() === country.toLowerCase());
+    if (existing) {
+      return {
+        id: `seed_${existing.city}`,
+        city: existing.city,
+        country: existing.country,
+        latitude: existing.lat,
+        longitude: existing.lng,
+      };
+    }
+    const next: CityLocation = { city, country, lat, lng };
+    cities = [...cities, next];
+    return {
+      id: `city_${cities.length}`,
+      city,
+      country,
+      latitude: lat,
+      longitude: lng,
+    };
+  }
+
+  const { data, error } = await supabase
+    .from('cities')
+    .select('id,city,country,latitude,longitude')
+    .ilike('city', city)
+    .ilike('country', country)
+    .limit(1);
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (data?.[0]) {
+    return data[0] as DbCity;
+  }
+
+  const { data: inserted, error: insertError } = await supabase
+    .from('cities')
+    .insert({ city, country, latitude: lat, longitude: lng })
+    .select('id,city,country,latitude,longitude')
+    .single();
+  if (insertError) throw new Error(insertError.message);
+  return inserted as DbCity;
+}
+
+async function findOrCreateBrewery(name: string | undefined): Promise<string | null> {
+  if (!name) return null;
+  const breweryName = normalizeText(name);
+  if (!breweryName) return null;
+
+  if (!useSupabase()) {
+    const existing = beers.find((beer) => beer.breweryName?.toLowerCase() === breweryName.toLowerCase());
+    if (existing?.breweryName) {
+      return `brew_${existing.breweryName.toLowerCase().replaceAll(' ', '_')}`;
+    }
+    return `brew_${breweryName.toLowerCase().replaceAll(' ', '_')}`;
+  }
+
+  const { data, error } = await supabase
+    .from('breweries')
+    .select('id,name')
+    .ilike('name', breweryName)
+    .limit(1);
+  if (error) throw new Error(error.message);
+
+  if (data?.[0]) {
+    return data[0].id;
+  }
+
+  const { data: inserted, error: insertError } = await supabase
+    .from('breweries')
+    .insert({ name: breweryName })
+    .select('id')
+    .single();
+  if (insertError) throw new Error(insertError.message);
+
+  return inserted.id;
+}
+
+async function findOrCreateBeer(name: string, style: BeerStyle, authorId: Id, breweryName?: string): Promise<DbBeer> {
+  const normalizedBeer = normalizeText(name);
+  if (!normalizedBeer) {
+    throw new Error('Beer name is required.');
+  }
+
+  if (!useSupabase()) {
+    const existing = beers.find((b) => b.name.toLowerCase() === normalizedBeer.toLowerCase() && b.style === style);
+    if (existing) return existing;
+
+    const next: MockBeer = {
+      id: `beer_${beers.length + 1}`,
+      name: normalizedBeer,
+      style,
+      createdBy: authorId,
+      created_at: now(),
+      created_by: authorId,
+      abv: null,
+      ibu: null,
+      brewery_id: null,
+      createdAt: now(),
+      breweryName,
+    };
+    beers = [...beers, next];
+    return next;
+  }
+
+  const { data, error } = await supabase
+    .from('beers')
+    .select('id,name,style,abv,ibu,brewery_id,created_at,created_by')
+    .ilike('name', normalizedBeer)
+    .eq('style', style)
+    .limit(1);
+  if (error) throw new Error(error.message);
+
+  if (data?.[0]) {
+    return data[0] as DbBeer;
+  }
+
+  const breweryId = await findOrCreateBrewery(breweryName);
+  const { data: inserted, error: insertError } = await supabase
+    .from('beers')
+    .insert({
+      name: normalizedBeer,
+      style,
+      created_by: authorId,
+      brewery_id: breweryId,
+    })
+    .select('id,name,style,abv,ibu,brewery_id,created_at,created_by')
+    .single();
+  if (insertError) throw new Error(insertError.message);
+  return inserted as DbBeer;
+}
+
+async function findOrCreateVenue(name: string, locationCity: DbCity): Promise<DbVenue> {
+  const normalizedName = normalizeText(name);
+  if (!useSupabase()) {
+    const existing = venues.find(
+      (v) => v.name.toLowerCase() === normalizedName.toLowerCase() && v.city.toLowerCase() === locationCity.city.toLowerCase()
+    );
+    if (existing) {
+      return {
+        id: existing.id,
+        name: existing.name,
+        country: existing.country,
+        latitude: existing.lat,
+        longitude: existing.lng,
+        city_id: `seed_${locationCity.city}`,
+        city: {
+          city: existing.city,
+          country: existing.country,
+        },
+      };
+    }
+    const next: Venue = {
+      id: `venue_${venues.length + 1}`,
+      name: normalizedName,
+      city: locationCity.city,
+      country: locationCity.country,
+      provider: 'user',
+      lat: locationCity.latitude as number,
+      lng: locationCity.longitude as number,
+    };
+    venues = [...venues, next];
+    return {
+      id: next.id,
+      name: next.name,
+      country: next.country,
+      latitude: next.lat,
+      longitude: next.lng,
+      city_id: `seed_${locationCity.city}`,
+    };
+  }
+
+  const { data, error } = await supabase
+    .from('venues')
+    .select('id,name,country,latitude,longitude,city_id')
+    .eq('city_id', locationCity.id)
+    .ilike('name', normalizedName)
+    .limit(1);
+  if (error) throw new Error(error.message);
+
+  if (data?.[0]) {
+    return data[0] as DbVenue;
+  }
+
+  const { data: inserted, error: insertError } = await supabase
+    .from('venues')
+    .insert({
+      name: normalizedName,
+      city_id: locationCity.id,
+      country: locationCity.country,
+      latitude: locationCity.latitude,
+      longitude: locationCity.longitude,
+    })
+    .select('id,name,country,latitude,longitude,city_id')
+    .single();
+  if (insertError) throw new Error(insertError.message);
+  return inserted as DbVenue;
+}
+
+export async function getCurrentProfile() {
+  return getCurrentProfileOrSeed();
+}
+
+export async function getProfileByUsernameOrId(slug: string): Promise<Profile | null> {
+  const normalized = slug.trim().toLowerCase().replace(/^@/, '');
+  if (!normalized) {
+    return null;
+  }
+
+  if (!useSupabase()) {
+    return profiles.find((profile) => profile.username.toLowerCase() === normalized) ?? null;
+  }
+
+  const query = uuidRegex.test(normalized)
+    ? supabase.from('profiles').select('id,username,display_name,avatar_url,is_creator,created_at').eq('id', normalized)
+    : supabase.from('profiles').select('id,username,display_name,avatar_url,is_creator,created_at').eq('username', normalized);
+
+  const { data, error } = await query.maybeSingle();
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw new Error(error.message);
+  }
+  if (!data) return null;
+  return toProfile(data);
+}
+
+export async function listProfiles() {
+  if (!(await canUseSupabaseBackend())) {
+    return [...profiles].sort((a, b) => a.displayName.localeCompare(b.displayName));
+  }
+  return getProfilesFromSupabase();
+}
+
+export async function getFollowedProfiles(profileId?: Id): Promise<Profile[]> {
+  const resolvedProfileId = await resolveProfileId(profileId);
+
+  if (!(await canUseSupabaseBackend())) {
+    const followed = follows.filter((f) => f.followerId === resolvedProfileId).map((f) => f.followingId);
+    return profiles.filter((p) => followed.includes(p.id));
+  }
+
+  const { data, error } = await supabase
+    .from('follows')
+    .select('following_id')
+    .eq('follower_id', resolvedProfileId)
+    .order('followed_at');
+  if (error) throw new Error(error.message);
+  const followedIds = (data ?? []).map((row: { following_id: string }) => row.following_id);
+  if (!followedIds.length) return [];
+  return getProfilesFromSupabase(followedIds);
+}
+
+export async function getFollowers(profileId?: Id): Promise<Profile[]> {
+  const resolvedProfileId = await resolveProfileId(profileId);
+
+  if (!(await canUseSupabaseBackend())) {
+    const followerIds = follows.filter((f) => f.followingId === resolvedProfileId).map((f) => f.followerId);
+    return profiles.filter((p) => followerIds.includes(p.id));
+  }
+
+  const { data, error } = await supabase
+    .from('follows')
+    .select('follower_id')
+    .eq('following_id', resolvedProfileId)
+    .order('followed_at');
+  if (error) throw new Error(error.message);
+  const followerIds = (data ?? []).map((row: { follower_id: string }) => row.follower_id);
+  if (!followerIds.length) return [];
+  return getProfilesFromSupabase(followerIds);
+}
+
+export async function listCityTrips(profileId?: Id): Promise<CityVisit[]> {
+  const resolvedProfileId = await resolveProfileId(profileId);
+
+  const visits = new Map<string, CityVisit>();
+
+  if (!(await canUseSupabaseBackend())) {
+    const personalCheckins = checkins
+      .filter((checkin) => checkin.profileId === resolvedProfileId)
+      .sort((a, b) => b.checkedAt.localeCompare(a.checkedAt));
+
+    for (const checkin of personalCheckins) {
+      const city = checkin.city ?? {
+        city: checkin.venue?.city ?? 'Unknown',
+        country: checkin.venue?.country ?? 'Unknown',
+        lat: 0,
+        lng: 0,
+      };
+      if (!city.city || !city.country) continue;
+
+      const key = cityStampKey(city);
+      const existing = visits.get(key);
+      if (!existing) {
+        visits.set(key, {
+          city: city.city,
+          country: city.country,
+          firstVisitedAt: checkin.checkedAt,
+          lastVisitedAt: checkin.checkedAt,
+          checkinCount: 1,
+        });
+        continue;
+      }
+
+      existing.checkinCount += 1;
+      if (checkin.checkedAt > existing.lastVisitedAt) {
+        existing.lastVisitedAt = checkin.checkedAt;
+      }
+      if (checkin.checkedAt < existing.firstVisitedAt) {
+        existing.firstVisitedAt = checkin.checkedAt;
+      }
+    }
+
+    return [...visits.values()].sort((a, b) => b.lastVisitedAt.localeCompare(a.lastVisitedAt));
+  }
+
+  const { data, error } = await supabase
+    .from('checkins')
+    .select(
+      `
+      scope,
+      checked_at,
+      cities(city,country),
+      venues(city_id,city:city_id(city,country))
+    `
+    )
+    .eq('profile_id', resolvedProfileId)
+    .order('checked_at', { ascending: false });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  for (const row of (data ?? []) as DbCitySnapshotRow[]) {
+    const city = snapshotCityFromRaw(row.scope, row.cities, row.venues);
+    if (!city?.city || !city.country) {
+      continue;
+    }
+
+    const key = cityStampKey(city);
+    const existing = visits.get(key);
+    const timestamp = row.checked_at;
+    if (!existing) {
+      visits.set(key, {
+        city: city.city,
+        country: city.country,
+        firstVisitedAt: timestamp,
+        lastVisitedAt: timestamp,
+        checkinCount: 1,
+      });
+      continue;
+    }
+
+    existing.checkinCount += 1;
+    if (timestamp > existing.lastVisitedAt) {
+      existing.lastVisitedAt = timestamp;
+    }
+    if (timestamp < existing.firstVisitedAt) {
+      existing.firstVisitedAt = timestamp;
+    }
+  }
+
+  return [...visits.values()].sort((a, b) => b.lastVisitedAt.localeCompare(a.lastVisitedAt));
+}
+
+export async function listPublicCityVisitors(city: string, country: string, excludeProfileId?: Id): Promise<CityVisitor[]> {
+  const normalizedCity = normalizeCityMatch(city, country);
+  if (!normalizedCity.city || !normalizedCity.country) return [];
+  const resolvedExcludeId = excludeProfileId ? await resolveProfileId(excludeProfileId) : undefined;
+
+  if (!(await canUseSupabaseBackend())) {
+    const visitors = new Map<string, CityVisitor>();
+    for (const checkin of checkins) {
+      if (checkin.privacy !== 'public') continue;
+      if (checkin.profileId === resolvedExcludeId) continue;
+
+      const checkinCity = checkin.city ?? {
+        city: checkin.venue?.city ?? '',
+        country: checkin.venue?.country ?? '',
+      };
+
+      if (checkinCity.city === normalizedCity.city && checkinCity.country === normalizedCity.country) {
+        const profile = profiles.find((item) => item.id === checkin.profileId);
+        if (!profile) continue;
+        if (!visitors.has(profile.id)) {
+          visitors.set(profile.id, {
+            profileId: profile.id,
+            username: profile.username,
+            displayName: profile.displayName,
+          });
+        }
+      }
+    }
+    return [...visitors.values()];
+  }
+
+  const { data, error } = await supabase
+    .from('checkins')
+    .select(
+      `
+      profile_id,
+      checked_at,
+      scope,
+      cities(city,country),
+      venues(city_id,city:city_id(city,country)),
+      profiles(id,username,display_name,avatar_url,is_creator,created_at)
+      `
+    )
+    .eq('privacy', 'public')
+    .order('checked_at', { ascending: false });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const rows = (data ?? []) as DbCitySnapshotRow[];
+  const visitorRows = new Map<string, Profile>();
+
+  for (const row of rows) {
+    if (resolvedExcludeId && row.profile_id === resolvedExcludeId) continue;
+    const location = snapshotCityFromRaw(row.scope, row.cities, row.venues);
+    if (!location || location.city !== normalizedCity.city || location.country !== normalizedCity.country) {
+      continue;
+    }
+
+    const profile = citySnapshotProfile(row);
+    if (!profile) continue;
+    if (!visitorRows.has(profile.id)) {
+      visitorRows.set(profile.id, profile);
+    }
+  }
+
+  return [...visitorRows.values()].map((profile) => ({
+    profileId: profile.id,
+    username: profile.username,
+    displayName: profile.displayName,
+  }));
+}
+
+export async function listPublicProfileCheckins(profileId: Id): Promise<Checkin[]> {
+  const resolvedProfileId = await resolveProfileId(profileId);
+
+  if (!(await canUseSupabaseBackend())) {
+    return checkins
+      .filter((checkin) => checkin.profileId === resolvedProfileId && checkin.privacy === 'public')
+      .sort((a, b) => b.checkedAt.localeCompare(a.checkedAt));
+  }
+
+  const { data, error } = await supabase
+    .from('checkins')
+    .select(
+      `
+      id,
+      profile_id,
+      scope,
+      privacy,
+      checked_at,
+      rating,
+      note,
+      photo_urls,
+      cities(city,country,latitude,longitude),
+      venues(id,name,country,latitude,longitude,city_id),
+      beers(id,name,style,abv,ibu,created_by,created_at,brewery_id)
+      `
+    )
+    .eq('profile_id', resolvedProfileId)
+    .eq('privacy', 'public')
+    .order('checked_at', { ascending: false });
+
+  if (error) throw new Error(error.message);
+
+  const rows = (data ?? []) as DbProfileCheckinRow[];
+  const venueCityIds = Array.from(
+    new Set(
+      rows
+        .map((row) => {
+          const venue = Array.isArray(row.venues) ? row.venues[0] : row.venues;
+          return venue?.city_id;
+        })
+        .filter((cityId): cityId is string => Boolean(cityId))
+    )
+  );
+  const breweryIds = Array.from(
+    new Set(
+      rows
+        .map((row) => {
+          const beer = Array.isArray(row.beers) ? row.beers[0] : row.beers;
+          return beer?.brewery_id;
+        })
+        .filter((breweryId): breweryId is string => Boolean(breweryId))
+    )
+  );
+
+  const [venueCityRowsResult, breweryRowsResult] = await Promise.all([
+    venueCityIds.length
+      ? supabase.from('cities').select('id,city,country,latitude,longitude').in('id', venueCityIds)
+      : ({ data: [] as Array<DbCity>, error: null } as { data: DbCity[]; error: null }),
+    breweryIds.length
+      ? supabase.from('breweries').select('id,name').in('id', breweryIds)
+      : ({ data: [] as Array<DbBrewery>, error: null } as { data: DbBrewery[]; error: null }),
+  ]);
+
+  if (venueCityRowsResult.error) throw new Error(venueCityRowsResult.error.message);
+  if (breweryRowsResult.error) throw new Error(breweryRowsResult.error.message);
+
+  const venueCityRows = venueCityRowsResult.data ?? [];
+  const breweryRows = breweryRowsResult.data ?? [];
+
+  const venueCityMap = new Map<string, DbCity>(venueCityRows.map((city) => [city.id, city]));
+  const breweryMap = new Map<string, DbBrewery>(breweryRows.map((brewery) => [brewery.id, brewery]));
+
+  return rows.map((row) => mapDbProfileCheckin(row, venueCityMap, breweryMap));
+}
+
+export async function followProfile(followerId: Id, followingId: Id): Promise<void> {
+  if (followerId === followingId) return;
+  if (await canUseSupabaseBackend()) {
+    if (!uuidRegex.test(followerId) || !uuidRegex.test(followingId)) return;
+    const { error } = await supabase.from('follows').upsert(
+      {
+        follower_id: followerId,
+        following_id: followingId,
+      },
+      { onConflict: 'follower_id,following_id', ignoreDuplicates: true }
+    );
+    if (error) throw new Error(error.message);
+    return;
+  }
+
+  if (follows.some((f) => f.followerId === followerId && f.followingId === followingId)) return;
+  follows = [
+    ...follows,
+    {
+      followerId,
+      followingId,
+      followedAt: now(),
+    },
+  ];
+}
+
+export async function unfollowProfile(followerId: Id, followingId: Id): Promise<void> {
+  if (await canUseSupabaseBackend()) {
+    if (!uuidRegex.test(followerId) || !uuidRegex.test(followingId)) return;
+    const { error } = await supabase
+      .from('follows')
+      .delete()
+      .eq('follower_id', followerId)
+      .eq('following_id', followingId);
+    if (error) throw new Error(error.message);
+    return;
+  }
+
+  follows = follows.filter((f) => !(f.followerId === followerId && f.followingId === followingId));
+}
+
+export async function getPassportSummary(profileId?: Id): Promise<PassportSummary> {
+  const resolvedProfileId = await resolveProfileId(profileId);
+
+  if (!(await canUseSupabaseBackend())) {
+    const visibleCheckins = checkins.filter((checkin) => checkin.profileId === resolvedProfileId);
+    const citiesSet = new Set<string>();
+    const countriesSet = new Set<string>();
+    const stylesMap = new Map<BeerStyle, number>();
+    const brewerySet = new Set<string>();
+
+    for (const checkin of visibleCheckins) {
+      const scopeCity = checkin.city ? checkin.city : checkin.venue;
+      if (scopeCity) {
+        countriesSet.add(scopeCity.country);
+        if (scopeCity.city && scopeCity.country) citiesSet.add(cityStampKey(scopeCity));
+      }
+      if (checkin.beer.brewery?.name) brewerySet.add(checkin.beer.brewery.name);
+      stylesMap.set(checkin.beer.style, (stylesMap.get(checkin.beer.style) ?? 0) + 1);
+    }
+
+    return {
+      countriesCount: countriesSet.size,
+      citiesCount: citiesSet.size,
+      uniqueBeersCount: new Set(visibleCheckins.map((c) => c.beer.id)).size,
+      uniqueBreweriesCount: brewerySet.size,
+      checkinsCount: visibleCheckins.length,
+      topStyles: [...stylesMap.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([style, count]) => ({ style, count })),
+    };
+  }
+
+  const [summaryRow, topStyles] = await Promise.all([
+    supabase
+      .from('passport_summary')
+      .select('profile_id,checkins_count,cities_count,countries_count,unique_beers_count,unique_breweries_count')
+      .eq('profile_id', resolvedProfileId)
+      .single(),
+    supabase.rpc('get_passport_top_styles', { p_profile_id: resolvedProfileId }),
+  ]);
+
+  if (summaryRow.error && summaryRow.error.code !== 'PGRST116') {
+    throw new Error(summaryRow.error.message);
+  }
+  const base = mapDbPassportSummary(summaryRow.data);
+  if (topStyles.error) {
+    throw new Error(topStyles.error.message);
+  }
+  if (topStyles.data) {
+    base.topStyles = (topStyles.data as unknown as DbPassportTopStyle[]).map((entry: DbPassportTopStyle) => ({
+      style: entry.style,
+      count: toInt(entry.count) ?? 0,
+    }));
+  }
+
+  return base;
+}
+
+export async function listPassportStamps(profileId?: Id): Promise<CityStamp[]> {
+  const resolvedProfileId = await resolveProfileId(profileId);
+
+  if (!(await canUseSupabaseBackend())) {
+    const personal = checkins.filter((c) => c.profileId === resolvedProfileId);
+    const cityMap = new Map<string, CityStamp>();
+    for (const checkin of personal) {
+      const city = checkin.city ?? {
+        city: checkin.venue?.city ?? 'Unknown',
+        country: checkin.venue?.country ?? 'Unknown',
+        lat: checkin.venue?.lat ?? 0,
+        lng: checkin.venue?.lng ?? 0,
+      };
+
+      const key = cityStampKey(city);
+      const existing = cityMap.get(key);
+      const nextCount = existing ? existing.count + 1 : 1;
+      const nextStamp = {
+        city: city.city,
+        country: city.country,
+        lat: city.lat,
+        lng: city.lng,
+        count: nextCount,
+        lastVisitedAt: checkin.checkedAt,
+      };
+      cityMap.set(key, nextStamp);
+    }
+    return [...cityMap.values()].sort((a, b) => b.lastVisitedAt.localeCompare(a.lastVisitedAt));
+  }
+
+  const { data, error } = await supabase
+    .from('city_stamps')
+    .select('city,country,latitude,longitude,checkin_count,last_visited_at')
+    .eq('profile_id', resolvedProfileId)
+    .order('last_visited_at', { ascending: false });
+
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((stamp: DbCityStamp) => ({
+    city: stamp.city ?? 'Unknown',
+    country: stamp.country ?? 'Unknown',
+    lat: toNumber(stamp.latitude) ?? 0,
+    lng: toNumber(stamp.longitude) ?? 0,
+    count: toInt(stamp.checkin_count) ?? 0,
+    lastVisitedAt: stamp.last_visited_at,
+  }));
+}
+
+export async function listFollowerFeed(viewerId?: Id): Promise<FollowFeedItem[]> {
+  const resolvedViewerId = await resolveProfileId(viewerId);
+
+  if (!(await canUseSupabaseBackend())) {
+    const profileMap = new Map(profiles.map((p) => [p.id, p]));
+    const followsSet = new Set(follows.filter((f) => f.followerId === resolvedViewerId).map((f) => f.followingId));
+    const visible = checkins
+      .filter((c) => {
+        if (c.profileId === resolvedViewerId) return true;
+        if (followsSet.has(c.profileId)) return c.privacy === 'public' || c.privacy === 'followers';
+        return c.privacy === 'public';
+      })
+      .filter((c) => profileMap.has(c.profileId))
+      .sort((a, b) => b.checkedAt.localeCompare(a.checkedAt));
+
+    return visible.map((checkin) => {
+      const author = profileMap.get(checkin.profileId)!;
+      return { checkin, author, followed: followsSet.has(author.id) };
+    });
+  }
+
+  const { data, error } = await supabase.rpc('get_follower_feed', {
+    p_viewer_id: resolvedViewerId,
+  });
+
+  if (error) throw new Error(error.message);
+  return (data as DbFollowFeedRow[] | null | undefined)?.map(mapDbFollowFeed) ?? [];
+}
+
+export async function listForYouFeed(viewerId?: Id): Promise<FollowFeedItem[]> {
+  const resolvedViewerId = await resolveProfileId(viewerId);
+
+  const [feed, followedProfiles, summary, trips] = await Promise.all([
+    listFollowerFeed(resolvedViewerId),
+    getFollowedProfiles(resolvedViewerId),
+    getPassportSummary(resolvedViewerId),
+    listCityTrips(resolvedViewerId),
+  ]);
+
+  const scoring: FeedScoringContext = {
+    followedProfileIds: new Set(followedProfiles.map((profile) => profile.id)),
+    preferredCountries: new Set(trips.map((trip) => trip.country.toLowerCase().trim())),
+    preferredStyles: topStylesFromSummary(summary),
+  };
+
+  return [...feed]
+    .map((item) => ({
+      item,
+      score: scoreFeedItem(item, scoring),
+    }))
+    .sort((a, b) => {
+      const scoreDiff = b.score - a.score;
+      if (scoreDiff !== 0) {
+        return scoreDiff;
+      }
+      return b.item.checkin.checkedAt.localeCompare(a.item.checkin.checkedAt);
+    })
+    .map((entry) => entry.item);
+}
+
+export async function listTrendingBeers(profileId?: Id, limit = 5): Promise<string[]> {
+  const visible = await listFollowerFeed(profileId);
+  const countByBeer = new Map<string, number>();
+
+  for (const item of visible) {
+    const beerName = item.checkin.beer.name;
+    countByBeer.set(beerName, (countByBeer.get(beerName) ?? 0) + 1);
+  }
+
+  return [...countByBeer.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit).map(([name]) => name);
+}
+
+export async function getFollowCounts(profileId?: Id): Promise<{ followers: number; following: number }> {
+  const resolvedProfileId = await resolveProfileId(profileId);
+
+  if (!(await canUseSupabaseBackend())) {
+    return {
+      followers: follows.filter((f) => f.followingId === resolvedProfileId).length,
+      following: follows.filter((f) => f.followerId === resolvedProfileId).length,
+    };
+  }
+
+  const [followersResult, followingResult] = await Promise.all([
+    supabase
+      .from('follows')
+      .select('id', { count: 'exact', head: true })
+      .eq('following_id', resolvedProfileId),
+    supabase
+      .from('follows')
+      .select('id', { count: 'exact', head: true })
+      .eq('follower_id', resolvedProfileId),
+  ]);
+
+  if (followersResult.error) throw new Error(followersResult.error.message);
+  if (followingResult.error) throw new Error(followingResult.error.message);
+
+  return {
+    followers: followersResult.count ?? 0,
+    following: followingResult.count ?? 0,
+  };
+}
+
+export async function createCheckin(input: CreateCheckinInput, authorId?: Id): Promise<Checkin> {
+  const normalizedBeer = input.beerName.trim();
+  const normalizedCity = input.city.trim();
+  const normalizedCountry = input.country.trim();
+  if (!normalizedBeer || !normalizedCity || !normalizedCountry) {
+    throw new Error('Beer and city/country are required.');
+  }
+  if (input.scope === 'venue' && !input.venueName?.trim()) {
+    throw new Error('Venue logs require a venue name.');
+  }
+
+  const resolvedAuthorId = await resolveProfileId(authorId);
+  const useBackend = await canUseSupabaseBackend();
+
+  if (useBackend) {
+    await getCurrentProfileOrSeed(resolvedAuthorId);
+  }
+
+  if (!useBackend) {
+    const city = upsertCity(normalizedCity, normalizedCountry, input.lat, input.lng);
+    const beer = upsertBeer(normalizedBeer, input.style, resolvedAuthorId, input.breweryName?.trim());
+    const checkin: Checkin = {
+      id: `checkin_${Date.now()}`,
+      profileId: resolvedAuthorId,
+      beer: normalizeBeer(beer),
+      scope: input.scope,
+      checkedAt: now(),
+      privacy: input.privacy,
+      note: input.note?.trim() ? input.note.trim() : undefined,
+      rating: normalizeRating(input.rating),
+      media: [],
+      ...(input.scope === 'venue'
+        ? {
+            venue: upsertVenue(input.venueName!.trim(), city),
+          }
+        : { city }),
+    };
+    checkins = [checkin, ...checkins];
+    return checkin;
+  }
+
+  const city = await findOrCreateCity(normalizedCity, normalizedCountry, input.lat, input.lng);
+  const beer = await findOrCreateBeer(normalizedBeer, input.style, resolvedAuthorId, input.breweryName?.trim());
+  const venue = input.scope === 'venue' && input.venueName
+    ? await findOrCreateVenue(input.venueName.trim(), city)
+    : null;
+
+  const payload = {
+    profile_id: resolvedAuthorId,
+    beer_id: beer.id,
+    scope: input.scope,
+    city_id: input.scope === 'city' ? city.id : null,
+    venue_id: input.scope === 'venue' ? venue?.id : null,
+    checked_at: now(),
+    privacy: input.privacy,
+    rating: normalizeRating(input.rating),
+    note: input.note?.trim() || null,
+    photo_urls: [],
+  };
+
+  const { data, error } = await supabase
+    .from('checkins')
+    .insert(payload)
+    .select('id,checked_at,privacy,rating,note,photo_urls')
+    .single();
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return {
+    id: data.id,
+    profileId: resolvedAuthorId,
+    beer: {
+      id: beer.id,
+      name: beer.name,
+      style: beer.style,
+      abv: toNumber(beer.abv),
+      ibu: toInt(beer.ibu),
+      brewery: beer.brewery_id
+        ? {
+            id: beer.brewery_id,
+            name: input.breweryName?.trim() ?? 'Unknown',
+          }
+        : undefined,
+      createdBy: beer.created_by ?? resolvedAuthorId,
+      createdAt: beer.created_at,
+    },
+    scope: input.scope,
+    city: input.scope === 'city'
+      ? {
+          city: city.city,
+          country: city.country,
+          lat: toNumber(city.latitude) ?? input.lat,
+          lng: toNumber(city.longitude) ?? input.lng,
+        }
+      : undefined,
+    venue:
+      input.scope === 'venue' && venue
+        ? {
+            id: venue.id,
+            name: venue.name,
+            city: venue.city?.city ?? city.city,
+            country: venue.country ?? city.country,
+            provider: 'user',
+            lat: toNumber(venue.latitude) ?? input.lat,
+            lng: toNumber(venue.longitude) ?? input.lng,
+          }
+        : undefined,
+    checkedAt: data.checked_at,
+    privacy: data.privacy,
+    rating: normalizeRating(data.rating ?? undefined),
+    note: data.note ?? undefined,
+    media: data.photo_urls ?? [],
+  };
+}
+
+export async function listVenueOrCityHints(query: string): Promise<{ venueName?: string; city?: string; country?: string }[]> {
+  const q = query.trim();
+  if (!q) return [];
+
+  if (!useSupabase()) {
+    const qLower = q.toLowerCase();
+    const results: { venueName?: string; city?: string; country?: string }[] = [];
+    for (const venue of venues) {
+      if (venue.name.toLowerCase().includes(qLower)) {
+        results.push({ venueName: venue.name, city: venue.city, country: venue.country });
+      }
+    }
+    for (const city of cities) {
+      const match = `${city.city}, ${city.country}`.toLowerCase().includes(qLower);
+      if (
+        match &&
+        !results.some(
+          (r) => r.city?.toLowerCase() === city.city.toLowerCase() && r.country?.toLowerCase() === city.country.toLowerCase()
+        )
+      ) {
+        results.push({ city: city.city, country: city.country });
+      }
+    }
+
+    return results.slice(0, 10);
+  }
+
+  const like = `%${q}%`;
+  const [cityRows, venueRows] = await Promise.all([
+    supabase
+      .from('cities')
+      .select('city,country')
+      .or(`city.ilike.${like},country.ilike.${like}`)
+      .limit(8),
+    supabase
+      .from('venues')
+      .select('name,city_id,city:city_id(city,country)')
+      .ilike('name', like)
+      .limit(8),
+  ]);
+
+  if (cityRows.error) throw new Error(cityRows.error.message);
+  if (venueRows.error) throw new Error(venueRows.error.message);
+
+  const unique: Array<{ venueName?: string; city?: string; country?: string }> = [];
+  const seen = new Set<string>();
+
+  for (const venue of ((venueRows.data as unknown as {
+    name: string;
+    city?: { city: string; country: string } | { city: string; country: string }[];
+  }[] | null) ?? [])) {
+    const cityRow = Array.isArray(venue.city) ? venue.city[0] : venue.city;
+    const item = {
+      venueName: venue.name,
+      city: cityRow?.city ?? undefined,
+      country: cityRow?.country ?? undefined,
+    };
+    const key = JSON.stringify(item);
+    if (!seen.has(key)) {
+      seen.add(key);
+      unique.push(item);
+    }
+  }
+
+  for (const city of (cityRows.data as { city: string; country: string }[] | null) ?? []) {
+    const item = { city: city.city, country: city.country };
+    const key = JSON.stringify(item);
+    if (!seen.has(key)) {
+      seen.add(key);
+      unique.push(item);
+    }
+  }
+
+  return unique.slice(0, 10);
+}
+
+function upsertCity(city: string, country: string, lat: number, lng: number): CityLocation {
+  const existing = cities.find((entry) => entry.city.toLowerCase() === city.toLowerCase() && entry.country.toLowerCase() === country.toLowerCase());
+  if (existing) return existing;
+
+  const next: CityLocation = { city, country, lat, lng };
+  cities = [...cities, next];
+  return next;
+}
+
+function upsertVenue(name: string, locationCity: CityLocation): Venue {
+  const existing = venues.find((v) => v.name.toLowerCase() === name.toLowerCase() && v.city.toLowerCase() === locationCity.city.toLowerCase());
+  if (existing) return existing;
+
+  const next: Venue = {
+    id: `venue_${venues.length + 1}`,
+    name,
+    city: locationCity.city,
+    country: locationCity.country,
+    provider: 'user',
+    lat: locationCity.lat,
+    lng: locationCity.lng,
+  };
+  venues = [...venues, next];
+  return next;
+}
+
+function upsertBeer(name: string, style: BeerStyle, profileId: Id, breweryName?: string) {
+  const existing = beers.find((b) => b.name.toLowerCase() === name.toLowerCase() && b.style === style);
+  if (existing) return existing;
+
+  const next: MockBeer = {
+    id: `beer_${beers.length + 1}`,
+    name,
+    style,
+    abv: null,
+    ibu: null,
+    brewery_id: null,
+    created_at: now(),
+    created_by: profileId,
+    createdBy: profileId,
+    createdAt: now(),
+    breweryName,
+  };
+  beers = [...beers, next];
+  return next;
+}
