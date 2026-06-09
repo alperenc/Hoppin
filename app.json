@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "Hoppin",
+    "slug": "hoppin",
+    "version": "0.0.1",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "backgroundColor": "#0b1220",
+      "resizeMode": "contain"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.hoppin.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0b1220"
+      },
+      "package": "com.hoppin.app"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static"
+    },
+    "plugins": [
+      ["expo-router"],
+      ["expo-location", { "locationAlwaysAndWhenInUsePermission": "Allow Hoppin to suggest nearby bars and venues." }]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "hoppin-passport"
+      }
+    }
+  }
+}
