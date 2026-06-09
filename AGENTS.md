@@ -25,6 +25,12 @@ This file is the repo-specific workflow and validation guide to use by default.
   - **Verification**
 - PR titles should use conventional style, e.g. `feat: ...`, `fix(hoppin): ...`, `docs: ...`.
 - Avoid custom prefixes such as `[codex]` in titles.
+- Never merge a PR with failing GitHub checks. This includes failures caused by
+  billing, runner availability, missing secrets, flaky jobs, or external
+  service issues. Fix the underlying issue, rerun the checks, and merge only
+  after GitHub reports the PR checks are passing or not required.
+- Local verification can support debugging, but it is not a substitute for
+  passing GitHub PR checks when a workflow is configured.
 
 ## Validation Defaults
 
