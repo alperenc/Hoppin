@@ -1,18 +1,27 @@
 import { useEffect, useState } from 'react';
 import * as Location from 'expo-location';
-import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, Alert, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, Alert, View, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
-import { BeerStyle, CheckinScope, PrivacyLevel } from '@/src/types/hoppin';
+import { Beer, MapPin, Sparkles, Star, UsersRound } from 'lucide-react-native';
+import { BeerStyle, LocationHint, PrivacyLevel } from '@/src/types/hoppin';
 import { createCheckin, listVenueOrCityHints } from '@/src/lib/hoppin';
 
 const styleChoices: BeerStyle[] = ['ipa', 'pilsner', 'lager', 'porter', 'stout', 'wheat', 'amber', 'sour', 'experimental', 'other'];
-type LocationHint = { venueName?: string; city?: string; country?: string };
+const audienceOptions: Array<{ value: PrivacyLevel; label: string; caption: string }> = [
+  { value: 'followers', label: 'Crew', caption: 'Followers see it' },
+  { value: 'public', label: 'Open tap', caption: 'Anyone can discover it' },
+  { value: 'private', label: 'Cellar', caption: 'Only you see it' },
+];
+
+const formatStyle = (style: BeerStyle) => {
+  if (style === 'ipa') return 'IPA';
+  return style.slice(0, 1).toUpperCase() + style.slice(1);
+};
 
 export default function Checkin() {
   const router = useRouter();
   const [beerName, setBeerName] = useState('');
   const [breweryName, setBreweryName] = useState('');
-  const [scope, setScope] = useState<CheckinScope>('venue');
   const [privacy, setPrivacy] = useState<PrivacyLevel>('followers');
   const [style, setStyle] = useState<BeerStyle>('ipa');
   const [venueName, setVenueName] = useState('');
@@ -26,9 +35,15 @@ export default function Checkin() {
   const [locationHints, setLocationHints] = useState<LocationHint[]>([]);
   const [isLoadingHints, setIsLoadingHints] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
+
+  const clearSavedCoordinates = () => {
+    setLatitude('');
+    setLongitude('');
+  };
 
   useEffect(() => {
-    const query = `${scope === 'venue' ? venueName : ''} ${city} ${country}`.trim();
+    const query = `${venueName} ${city} ${country}`.trim();
     if (query.length < 2) {
       setLocationHints([]);
       return;
@@ -49,11 +64,13 @@ export default function Checkin() {
     return () => {
       clearTimeout(handle);
     };
-  }, [city, country, venueName, scope]);
+  }, [city, country, venueName]);
 
   const applyHint = (hint: LocationHint) => {
     if (hint.venueName) {
       setVenueName(hint.venueName);
+    } else {
+      setVenueName('');
     }
     if (hint.city) {
       setCity(hint.city);
@@ -61,12 +78,27 @@ export default function Checkin() {
     if (hint.country) {
       setCountry(hint.country);
     }
+    if (hint.lat !== undefined && hint.lng !== undefined) {
+      setLatitude(String(hint.lat));
+      setLongitude(String(hint.lng));
+    } else {
+      clearSavedCoordinates();
+    }
     setLocationHints([]);
   };
 
   const handleSubmit = async () => {
-    if (!beerName.trim() || !city.trim() || !country.trim()) {
-      Alert.alert('Missing details', 'Beer and city/country are required.');
+    if (isSaving) {
+      return;
+    }
+
+    const normalizedCity = city.trim();
+    const normalizedCountry = country.trim();
+    const normalizedVenue = venueName.trim();
+    const hasVenue = Boolean(normalizedVenue);
+
+    if (!beerName.trim() || !normalizedCity || !normalizedCountry) {
+      Alert.alert('Missing trail details', 'Add the beer plus at least a city and country.');
       return;
     }
 
@@ -85,10 +117,12 @@ export default function Checkin() {
     const rawLongitude = longitude.trim();
     let parsedLatitude: number | undefined;
     let parsedLongitude: number | undefined;
+    let parsedCityLatitude: number | undefined;
+    let parsedCityLongitude: number | undefined;
 
     if (rawLatitude || rawLongitude) {
       if (!rawLatitude || !rawLongitude) {
-        Alert.alert('Invalid location', 'Enter both latitude and longitude or leave both blank.');
+        Alert.alert('Invalid location', 'Use current location again or clear the saved coordinates.');
         return;
       }
 
@@ -96,35 +130,92 @@ export default function Checkin() {
       parsedLongitude = Number(rawLongitude);
 
       if (Number.isNaN(parsedLatitude) || Number.isNaN(parsedLongitude)) {
-        Alert.alert('Invalid location', 'Latitude and longitude must be valid numbers.');
+        Alert.alert('Invalid location', 'Saved coordinates are not valid numbers.');
         return;
       }
 
       if (parsedLatitude < -90 || parsedLatitude > 90 || parsedLongitude < -180 || parsedLongitude > 180) {
-        Alert.alert('Invalid location', 'Latitude must be between -90 and 90 and longitude between -180 and 180.');
+        Alert.alert('Invalid location', 'Saved coordinates are outside the supported range.');
         return;
       }
     }
 
+    if (!hasVenue) {
+      parsedCityLatitude = parsedLatitude;
+      parsedCityLongitude = parsedLongitude;
+    }
+
+    setIsSaving(true);
+
+    const needsPlaceCoordinates = parsedLatitude === undefined || parsedLongitude === undefined;
+    const needsCityCoordinates = hasVenue && (parsedCityLatitude === undefined || parsedCityLongitude === undefined);
+
+    if (needsPlaceCoordinates || needsCityCoordinates) {
+      if (needsPlaceCoordinates && Platform.OS === 'android') {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Location permission needed', 'Android requires location permission before mapping a typed place.');
+          setIsSaving(false);
+          return;
+        }
+      }
+
+      if (needsPlaceCoordinates) {
+        try {
+          const geocodeTarget = hasVenue ? `${normalizedVenue}, ${normalizedCity}, ${normalizedCountry}` : `${normalizedCity}, ${normalizedCountry}`;
+          const geocoded = await Location.geocodeAsync(geocodeTarget);
+          const firstMatch = geocoded[0];
+          if (firstMatch) {
+            parsedLatitude = firstMatch.latitude;
+            parsedLongitude = firstMatch.longitude;
+          }
+        } catch {
+          parsedLatitude = undefined;
+          parsedLongitude = undefined;
+        }
+      }
+
+      if (needsCityCoordinates && (Platform.OS !== 'android' || needsPlaceCoordinates)) {
+        try {
+          const geocodedCity = await Location.geocodeAsync(`${normalizedCity}, ${normalizedCountry}`);
+          const firstCityMatch = geocodedCity[0];
+          if (firstCityMatch) {
+            parsedCityLatitude = firstCityMatch.latitude;
+            parsedCityLongitude = firstCityMatch.longitude;
+          }
+        } catch {
+          parsedCityLatitude = undefined;
+          parsedCityLongitude = undefined;
+        }
+      }
+    }
+
+    if (parsedLatitude === undefined || parsedLongitude === undefined) {
+      Alert.alert('Map this place first', 'Use your current city or choose a place hint so this stamp lands on the passport map.');
+      setIsSaving(false);
+      return;
+    }
+
     try {
-      setIsSaving(true);
       await createCheckin({
         beerName,
         style,
         breweryName,
-        scope,
+        scope: hasVenue ? 'venue' : 'city',
         privacy,
         note,
         rating: parsedRating,
-        lat: parsedLatitude ?? 0,
-        lng: parsedLongitude ?? 0,
-        venueName,
-        city,
-        country,
+        lat: parsedLatitude,
+        lng: parsedLongitude,
+        cityLat: hasVenue ? parsedCityLatitude : undefined,
+        cityLng: hasVenue ? parsedCityLongitude : undefined,
+        venueName: hasVenue ? normalizedVenue : undefined,
+        city: normalizedCity,
+        country: normalizedCountry,
       });
-      router.replace('/(tabs)/home');
+      router.replace('/home');
     } catch (error) {
-      Alert.alert('Could not save', 'Your check-in could not be created.');
+      Alert.alert('Could not stamp this pour', 'Your beer memory could not be saved.');
       setIsSaving(false);
     }
   };
@@ -134,7 +225,7 @@ export default function Checkin() {
       setIsLocating(true);
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Location blocked', 'Enable location permissions to use your current location.');
+        Alert.alert('Location blocked', 'Enable location permissions to use your current city.');
         return;
       }
 
@@ -162,145 +253,193 @@ export default function Checkin() {
     }
   };
 
+  const locationStatus = city && country ? `${city}, ${country}` : 'City and country create the passport stamp';
+  const trimmedBeerName = beerName.trim();
+  const trimmedVenueName = venueName.trim();
+  const placePreview = city.trim() && country.trim() ? `${city.trim()}, ${country.trim()}` : 'Somewhere worth mapping';
+  const audienceLabel = audienceOptions.find((option) => option.value === privacy)?.label ?? 'Crew';
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>Log a beer</Text>
-      <Text style={styles.subtitle}>City, venue, privacy, and style are all part of your passport.</Text>
-
-      <TextInput
-        placeholder="Beer name"
-        placeholderTextColor="#64748b"
-        style={styles.input}
-        value={beerName}
-        onChangeText={setBeerName}
-      />
-      <TextInput
-        placeholder="Brewery (optional)"
-        placeholderTextColor="#64748b"
-        style={styles.input}
-        value={breweryName}
-        onChangeText={setBreweryName}
-      />
-
-      <Text style={styles.sectionLabel}>Scope</Text>
-      <View style={styles.segmentGroup}>
-        <TouchableOpacity style={[styles.segmentButton, scope === 'venue' ? styles.segmentButtonActive : undefined]} onPress={() => setScope('venue')}>
-          <Text style={styles.segmentText}>Venue</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.segmentButton, scope === 'city' ? styles.segmentButtonActive : undefined]} onPress={() => setScope('city')}>
-          <Text style={styles.segmentText}>City</Text>
-        </TouchableOpacity>
+      <View style={styles.hero}>
+        <View style={styles.kickerRow}>
+          <Sparkles color="#f59e0b" size={16} />
+          <Text style={styles.kicker}>New passport stamp</Text>
+        </View>
+        <Text style={styles.title}>Stamp a pour worth finding again.</Text>
+        <Text style={styles.subtitle}>Build your beer passport from the places, styles, and moments you want to remember.</Text>
       </View>
 
-      {scope === 'venue' ? (
+      <View style={styles.preview}>
+        <View style={styles.previewTop}>
+          <Text style={styles.previewKicker}>Passport preview</Text>
+          <Text style={styles.previewBadge}>{trimmedVenueName ? 'Venue stamp' : 'City stamp'}</Text>
+        </View>
+        <Text style={styles.previewTitle}>{trimmedBeerName || 'Your next pour'}</Text>
+        <View style={styles.previewPlaceRow}>
+          <MapPin color="#86efac" size={16} />
+          <Text style={styles.previewPlace}>{trimmedVenueName ? `${trimmedVenueName} - ${placePreview}` : placePreview}</Text>
+        </View>
+        <Text style={styles.previewMeta}>{audienceLabel} audience. {formatStyle(style)} style. Details can stay light.</Text>
+      </View>
+
+      <View style={styles.panel}>
+        <View style={styles.panelHeader}>
+          <Beer color="#f59e0b" size={22} />
+          <View>
+            <Text style={styles.panelTitle}>What's in the glass?</Text>
+            <Text style={styles.panelMeta}>Start with the name. Everything else can wait.</Text>
+          </View>
+        </View>
         <TextInput
-          placeholder="Venue name"
+          placeholder="Cloud Lift IPA"
+          placeholderTextColor="#64748b"
+          style={styles.heroInput}
+          value={beerName}
+          onChangeText={setBeerName}
+        />
+      </View>
+
+      <View style={styles.panel}>
+        <View style={styles.panelHeader}>
+          <MapPin color="#22c55e" size={22} />
+          <View>
+            <Text style={styles.panelTitle}>Where should this stamp live?</Text>
+            <Text style={styles.panelMeta}>{locationStatus}</Text>
+          </View>
+        </View>
+        <TextInput
+          placeholder="Venue or taproom, if it matters"
           placeholderTextColor="#64748b"
           style={styles.input}
           value={venueName}
-          onChangeText={setVenueName}
+          onChangeText={(value) => {
+            setVenueName(value);
+            clearSavedCoordinates();
+          }}
         />
-      ) : null}
+        <View style={styles.inlineFields}>
+          <TextInput
+            placeholder="City"
+            placeholderTextColor="#64748b"
+            style={[styles.input, styles.inlineInput]}
+            value={city}
+            onChangeText={(value) => {
+              setCity(value);
+              clearSavedCoordinates();
+            }}
+          />
+          <TextInput
+            placeholder="Country"
+            placeholderTextColor="#64748b"
+            style={[styles.input, styles.inlineInput]}
+            value={country}
+            onChangeText={(value) => {
+              setCountry(value);
+              clearSavedCoordinates();
+            }}
+          />
+        </View>
+        {!!locationHints.length || isLoadingHints ? (
+          <View style={styles.hintContainer}>
+            {isLoadingHints ? <Text style={styles.hintLoading}>Finding matching places...</Text> : null}
+            {!isLoadingHints &&
+              locationHints.map((hint) => {
+                const key = `${hint.venueName ?? ''}-${hint.city ?? ''}-${hint.country ?? ''}`;
+                const label = hint.venueName ? `${hint.venueName} - ${hint.city}, ${hint.country}` : `${hint.city}, ${hint.country}`;
+                return (
+                  <TouchableOpacity key={key} style={styles.hintItem} onPress={() => applyHint(hint)}>
+                    <Text style={styles.hintItemText}>{label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+          </View>
+        ) : null}
+        <TouchableOpacity
+          style={styles.ghostButton}
+          onPress={applyCurrentLocation}
+          disabled={isLocating}
+        >
+          <Text style={styles.ghostButtonText}>{isLocating ? 'Reading your city...' : 'Use my current city'}</Text>
+        </TouchableOpacity>
+      </View>
 
-      <TextInput
-        placeholder="City"
-        placeholderTextColor="#64748b"
-        style={styles.input}
-        value={city}
-        onChangeText={setCity}
-      />
-      <TextInput
-        placeholder="Country"
-        placeholderTextColor="#64748b"
-        style={styles.input}
-        value={country}
-        onChangeText={setCountry}
-      />
-      {!!locationHints.length || isLoadingHints ? (
-        <View style={styles.hintContainer}>
-          {isLoadingHints ? <Text style={styles.hintLoading}>Loading nearby locations…</Text> : null}
-          {!isLoadingHints &&
-            locationHints.map((hint) => {
-              const key = `${hint.venueName ?? ''}-${hint.city ?? ''}-${hint.country ?? ''}`;
-              const label = hint.venueName ? `${hint.venueName} — ${hint.city}, ${hint.country}` : `${hint.city}, ${hint.country}`;
+      <TouchableOpacity style={styles.detailsToggle} onPress={() => setShowDetails((current) => !current)}>
+        <View style={styles.detailsCopy}>
+          <Text style={styles.detailsTitle}>Fine-tune the memory</Text>
+          <Text style={styles.detailsMeta}>Brewery, style, audience, rating, and tasting note.</Text>
+        </View>
+        <Text style={styles.detailsAction}>{showDetails ? 'Hide' : 'Add'}</Text>
+      </TouchableOpacity>
+
+      {showDetails ? (
+        <View style={styles.panel}>
+          <Text style={styles.sectionLabel}>Maker</Text>
+          <TextInput
+            placeholder="Brewery, maker, or taproom"
+            placeholderTextColor="#64748b"
+            style={styles.input}
+            value={breweryName}
+            onChangeText={setBreweryName}
+          />
+
+          <Text style={styles.sectionLabel}>Style</Text>
+          <View style={styles.chipRow}>
+            {styleChoices.map((choice) => (
+              <TouchableOpacity
+                key={choice}
+                style={[styles.chip, style === choice ? styles.chipActive : undefined]}
+                onPress={() => setStyle(choice)}
+              >
+                <Text style={[styles.chipText, style === choice ? styles.chipTextActive : undefined]}>{formatStyle(choice)}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <Text style={styles.sectionLabel}>Audience</Text>
+          <View style={styles.audienceList}>
+            {audienceOptions.map((option) => {
+              const active = privacy === option.value;
               return (
-                <TouchableOpacity key={key} style={styles.hintItem} onPress={() => applyHint(hint)}>
-                  <Text style={styles.hintItemText}>{label}</Text>
+                <TouchableOpacity
+                  key={option.value}
+                  style={[styles.audienceRow, active ? styles.audienceRowActive : undefined]}
+                  onPress={() => setPrivacy(option.value)}
+                >
+                  <UsersRound color={active ? '#071022' : '#38bdf8'} size={18} />
+                  <View style={styles.audienceCopy}>
+                    <Text style={[styles.audienceLabel, active ? styles.audienceLabelActive : undefined]}>{option.label}</Text>
+                    <Text style={[styles.audienceCaption, active ? styles.audienceCaptionActive : undefined]}>{option.caption}</Text>
+                  </View>
                 </TouchableOpacity>
               );
             })}
+          </View>
+
+          <View style={styles.ratingRow}>
+            {[1, 2, 3, 4, 5].map((value) => {
+              const active = rating === String(value);
+              return (
+                <TouchableOpacity key={value} style={styles.starButton} onPress={() => setRating(active ? '' : String(value))}>
+                  <Star color={active ? '#facc15' : '#475569'} fill={active ? '#facc15' : 'transparent'} size={26} />
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <TextInput
+            placeholder="What made this pour worth remembering?"
+            placeholderTextColor="#64748b"
+            style={[styles.input, styles.noteInput]}
+            value={note}
+            onChangeText={setNote}
+            multiline
+            numberOfLines={4}
+          />
         </View>
       ) : null}
 
-      <Text style={styles.sectionLabel}>Style</Text>
-      <View style={styles.segmentGroup}>
-        {styleChoices.slice(0, 5).map((choice) => (
-          <TouchableOpacity
-            key={choice}
-            style={[styles.segmentButton, style === choice ? styles.segmentButtonActive : undefined]}
-            onPress={() => setStyle(choice)}
-          >
-            <Text style={styles.segmentText}>{choice.toUpperCase()}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      <Text style={styles.sectionLabel}>Privacy</Text>
-      <View style={styles.segmentGroup}>
-        {(['public', 'followers', 'private'] as PrivacyLevel[]).map((value) => (
-          <TouchableOpacity
-            key={value}
-            style={[styles.segmentButton, privacy === value ? styles.segmentButtonActive : undefined]}
-            onPress={() => setPrivacy(value)}
-          >
-            <Text style={styles.segmentText}>{value}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      <TextInput
-        keyboardType="numeric"
-        placeholder="Rating 1-5"
-        placeholderTextColor="#64748b"
-        style={styles.input}
-        value={rating}
-        onChangeText={setRating}
-      />
-      <TextInput
-        placeholder="Notes"
-        placeholderTextColor="#64748b"
-        style={styles.input}
-        value={note}
-        onChangeText={setNote}
-        multiline
-        numberOfLines={3}
-      />
-      <TextInput
-        keyboardType="numeric"
-        placeholder="Latitude (optional)"
-        placeholderTextColor="#64748b"
-        style={styles.input}
-        value={latitude}
-        onChangeText={setLatitude}
-      />
-      <TextInput
-        keyboardType="numeric"
-        placeholder="Longitude (optional)"
-        placeholderTextColor="#64748b"
-        style={styles.input}
-        value={longitude}
-        onChangeText={setLongitude}
-      />
-      <TouchableOpacity
-        style={[styles.save, styles.locationButton]}
-        onPress={applyCurrentLocation}
-        disabled={isLocating}
-      >
-        <Text style={styles.saveText}>{isLocating ? 'Reading location…' : 'Use current location'}</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity style={styles.save} onPress={handleSubmit} disabled={isSaving}>
-        <Text style={styles.saveText}>{isSaving ? 'Saving...' : 'Save check-in'}</Text>
+      <TouchableOpacity style={[styles.save, isSaving ? styles.disabled : undefined]} onPress={handleSubmit} disabled={isSaving}>
+        <Text style={styles.saveText}>{isSaving ? 'Stamping...' : 'Stamp this pour'}</Text>
       </TouchableOpacity>
     </ScrollView>
   );
@@ -308,75 +447,280 @@ export default function Checkin() {
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    flexGrow: 1,
     padding: 16,
     paddingTop: 48,
+    paddingBottom: 32,
     backgroundColor: '#071022',
+    width: '100%',
+    maxWidth: 760,
+    alignSelf: 'center',
+  },
+  hero: {
+    marginBottom: 18,
+    gap: 10,
+  },
+  kickerRow: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#334155',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: '#0b1220',
+  },
+  kicker: {
+    color: '#facc15',
+    fontWeight: '800',
+    fontSize: 12,
+    textTransform: 'uppercase',
   },
   title: {
     color: '#f8fafc',
-    fontSize: 32,
-    fontWeight: '700',
+    fontSize: 34,
+    lineHeight: 40,
+    fontWeight: '800',
   },
   subtitle: {
     color: '#94a3b8',
-    marginTop: 8,
-    marginBottom: 16,
+    lineHeight: 22,
+    fontSize: 15,
   },
-  sectionLabel: {
-    color: '#cbd5e1',
-    marginBottom: 8,
-    marginTop: 8,
+  preview: {
+    borderWidth: 1,
+    borderColor: '#34513d',
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 14,
+    gap: 9,
+    backgroundColor: '#10251c',
   },
-  segmentGroup: {
+  previewTop: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 8,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
   },
-  segmentButton: {
+  previewKicker: {
+    color: '#86efac',
+    fontSize: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  previewBadge: {
+    color: '#111827',
+    backgroundColor: '#facc15',
+    borderRadius: 999,
+    overflow: 'hidden',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  previewTitle: {
+    color: '#f8fafc',
+    fontSize: 24,
+    lineHeight: 29,
+    fontWeight: '900',
+  },
+  previewPlaceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  previewPlace: {
+    color: '#bbf7d0',
+    flex: 1,
+    fontWeight: '800',
+  },
+  previewMeta: {
+    color: '#a7f3d0',
+    lineHeight: 20,
+  },
+  panel: {
+    backgroundColor: '#111b34',
+    borderColor: '#1f3a5f',
+    borderRadius: 8,
+    borderWidth: 1,
+    padding: 14,
+    marginBottom: 14,
+    gap: 10,
+  },
+  panelHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 2,
+  },
+  panelTitle: {
+    color: '#f8fafc',
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  panelMeta: {
+    color: '#94a3b8',
+    marginTop: 2,
+  },
+  heroInput: {
     borderWidth: 1,
     borderColor: '#334155',
-    borderRadius: 20,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-  },
-  segmentButtonActive: {
-    borderColor: '#f59e0b',
-    backgroundColor: '#422006',
-  },
-  segmentText: {
-    color: '#e2e8f0',
+    borderRadius: 8,
+    color: '#f8fafc',
+    padding: 14,
+    backgroundColor: '#0b1220',
+    fontSize: 18,
+    fontWeight: '800',
   },
   input: {
     borderWidth: 1,
     borderColor: '#1f2937',
-    borderRadius: 12,
+    borderRadius: 8,
     color: '#e2e8f0',
     padding: 12,
-    marginBottom: 8,
     backgroundColor: '#0f172a',
   },
-  save: {
-    marginTop: 12,
+  inlineFields: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  inlineInput: {
+    flex: 1,
+  },
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  chip: {
+    borderWidth: 1,
+    borderColor: '#334155',
+    borderRadius: 999,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#0b1220',
+  },
+  chipActive: {
+    borderColor: '#f59e0b',
     backgroundColor: '#f59e0b',
-    borderRadius: 10,
+  },
+  chipText: {
+    color: '#e2e8f0',
+    fontWeight: '700',
+  },
+  chipTextActive: {
+    color: '#111827',
+  },
+  ghostButton: {
+    borderWidth: 1,
+    borderColor: '#22c55e',
+    borderRadius: 8,
     padding: 12,
     alignItems: 'center',
   },
-  saveText: {
-    color: '#111827',
-    fontWeight: '700',
+  ghostButtonText: {
+    color: '#86efac',
+    fontWeight: '800',
   },
-  locationButton: {
-    marginBottom: 12,
+  detailsToggle: {
+    borderWidth: 1,
+    borderColor: '#334155',
+    borderRadius: 8,
+    padding: 14,
+    marginBottom: 14,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#0b1220',
+  },
+  detailsTitle: {
+    color: '#f8fafc',
+    fontWeight: '800',
+    fontSize: 16,
+  },
+  detailsMeta: {
+    color: '#94a3b8',
+    marginTop: 4,
+  },
+  detailsCopy: {
+    flex: 1,
+  },
+  detailsAction: {
+    color: '#38bdf8',
+    fontWeight: '800',
+    flexShrink: 0,
+  },
+  sectionLabel: {
+    color: '#cbd5e1',
+    fontWeight: '800',
+  },
+  audienceList: {
+    gap: 8,
+  },
+  audienceRow: {
+    borderWidth: 1,
+    borderColor: '#334155',
+    borderRadius: 8,
+    padding: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#0b1220',
+  },
+  audienceRowActive: {
+    backgroundColor: '#e0f2fe',
+    borderColor: '#e0f2fe',
+  },
+  audienceCopy: {
+    flex: 1,
+  },
+  audienceLabel: {
+    color: '#f8fafc',
+    fontWeight: '800',
+  },
+  audienceLabelActive: {
+    color: '#071022',
+  },
+  audienceCaption: {
+    color: '#94a3b8',
+    marginTop: 2,
+  },
+  audienceCaptionActive: {
+    color: '#334155',
+  },
+  ratingRow: {
+    flexDirection: 'row',
+    gap: 6,
+    alignItems: 'center',
+  },
+  starButton: {
+    paddingVertical: 4,
+    paddingRight: 4,
+  },
+  noteInput: {
+    minHeight: 96,
+    textAlignVertical: 'top',
+  },
+  save: {
     backgroundColor: '#22c55e',
+    borderRadius: 8,
+    padding: 14,
+    alignItems: 'center',
+  },
+  saveText: {
+    color: '#052e16',
+    fontWeight: '900',
+  },
+  disabled: {
+    opacity: 0.6,
   },
   hintContainer: {
     borderWidth: 1,
     borderColor: '#1f2937',
-    borderRadius: 12,
-    marginBottom: 12,
+    borderRadius: 8,
     overflow: 'hidden',
   },
   hintLoading: {

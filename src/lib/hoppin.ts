@@ -1,4 +1,4 @@
-import { BeerStyle, Checkin, CityLocation, CityStamp, CityVisit, CityVisitor, Follow, FollowFeedItem, PassportSummary, Profile, CheckinScope, PrivacyLevel, Venue } from '@/src/types/hoppin';
+import { BeerStyle, Checkin, CityLocation, CityStamp, CityVisit, CityVisitor, Follow, FollowFeedItem, LocationHint, PassportSummary, Profile, CheckinScope, PrivacyLevel, Venue } from '@/src/types/hoppin';
 import { isSupabaseConfigured, supabase } from '@/src/lib/supabase';
 
 type Id = string;
@@ -33,6 +33,8 @@ type CreateCheckinInput = {
   country: string;
   lat: number;
   lng: number;
+  cityLat?: number;
+  cityLng?: number;
 };
 
 type DbProfile = {
@@ -758,7 +760,7 @@ export async function setProfileCreatorRole(profileId: Id, isCreator: boolean): 
   return toProfile(data);
 }
 
-async function findOrCreateCity(city: string, country: string, lat: number, lng: number): Promise<DbCity> {
+async function findOrCreateCity(city: string, country: string, lat?: number, lng?: number): Promise<DbCity> {
   if (!useSupabase()) {
     const existing = cities.find((entry) => entry.city.toLowerCase() === city.toLowerCase() && entry.country.toLowerCase() === country.toLowerCase());
     if (existing) {
@@ -769,6 +771,9 @@ async function findOrCreateCity(city: string, country: string, lat: number, lng:
         latitude: existing.lat,
         longitude: existing.lng,
       };
+    }
+    if (lat === undefined || lng === undefined) {
+      throw new Error('City coordinates are required for new cities.');
     }
     const next: CityLocation = { city, country, lat, lng };
     cities = [...cities, next];
@@ -793,6 +798,10 @@ async function findOrCreateCity(city: string, country: string, lat: number, lng:
 
   if (data?.[0]) {
     return data[0] as DbCity;
+  }
+
+  if (lat === undefined || lng === undefined) {
+    throw new Error('City coordinates are required for new cities.');
   }
 
   const { data: inserted, error: insertError } = await supabase
@@ -892,7 +901,7 @@ async function findOrCreateBeer(name: string, style: BeerStyle, authorId: Id, br
   return inserted as DbBeer;
 }
 
-async function findOrCreateVenue(name: string, locationCity: DbCity): Promise<DbVenue> {
+async function findOrCreateVenue(name: string, locationCity: DbCity, lat: number, lng: number): Promise<DbVenue> {
   const normalizedName = normalizeText(name);
   if (!useSupabase()) {
     const existing = venues.find(
@@ -918,8 +927,8 @@ async function findOrCreateVenue(name: string, locationCity: DbCity): Promise<Db
       city: locationCity.city,
       country: locationCity.country,
       provider: 'user',
-      lat: locationCity.latitude as number,
-      lng: locationCity.longitude as number,
+      lat,
+      lng,
     };
     venues = [...venues, next];
     return {
@@ -950,8 +959,8 @@ async function findOrCreateVenue(name: string, locationCity: DbCity): Promise<Db
       name: normalizedName,
       city_id: locationCity.id,
       country: locationCity.country,
-      latitude: locationCity.latitude,
-      longitude: locationCity.longitude,
+      latitude: lat,
+      longitude: lng,
     })
     .select('id,name,country,latitude,longitude,city_id')
     .single();
@@ -1540,8 +1549,11 @@ export async function createCheckin(input: CreateCheckinInput, authorId?: Id): P
     await getCurrentProfileOrSeed(resolvedAuthorId);
   }
 
+  const cityLat = input.scope === 'venue' ? input.cityLat : input.lat;
+  const cityLng = input.scope === 'venue' ? input.cityLng : input.lng;
+
   if (!useBackend) {
-    const city = upsertCity(normalizedCity, normalizedCountry, input.lat, input.lng);
+    const city = upsertCity(normalizedCity, normalizedCountry, cityLat, cityLng);
     const beer = upsertBeer(normalizedBeer, input.style, resolvedAuthorId, input.breweryName?.trim());
     const checkin: Checkin = {
       id: `checkin_${Date.now()}`,
@@ -1555,7 +1567,7 @@ export async function createCheckin(input: CreateCheckinInput, authorId?: Id): P
       media: [],
       ...(input.scope === 'venue'
         ? {
-            venue: upsertVenue(input.venueName!.trim(), city),
+            venue: upsertVenue(input.venueName!.trim(), city, input.lat, input.lng),
           }
         : { city }),
     };
@@ -1563,10 +1575,10 @@ export async function createCheckin(input: CreateCheckinInput, authorId?: Id): P
     return checkin;
   }
 
-  const city = await findOrCreateCity(normalizedCity, normalizedCountry, input.lat, input.lng);
+  const city = await findOrCreateCity(normalizedCity, normalizedCountry, cityLat, cityLng);
   const beer = await findOrCreateBeer(normalizedBeer, input.style, resolvedAuthorId, input.breweryName?.trim());
   const venue = input.scope === 'venue' && input.venueName
-    ? await findOrCreateVenue(input.venueName.trim(), city)
+    ? await findOrCreateVenue(input.venueName.trim(), city, input.lat, input.lng)
     : null;
 
   const payload = {
@@ -1638,16 +1650,16 @@ export async function createCheckin(input: CreateCheckinInput, authorId?: Id): P
   };
 }
 
-export async function listVenueOrCityHints(query: string): Promise<{ venueName?: string; city?: string; country?: string }[]> {
+export async function listVenueOrCityHints(query: string): Promise<LocationHint[]> {
   const q = query.trim();
   if (!q) return [];
 
   if (!useSupabase()) {
     const qLower = q.toLowerCase();
-    const results: { venueName?: string; city?: string; country?: string }[] = [];
+    const results: LocationHint[] = [];
     for (const venue of venues) {
       if (venue.name.toLowerCase().includes(qLower)) {
-        results.push({ venueName: venue.name, city: venue.city, country: venue.country });
+        results.push({ venueName: venue.name, city: venue.city, country: venue.country, lat: venue.lat, lng: venue.lng });
       }
     }
     for (const city of cities) {
@@ -1658,7 +1670,7 @@ export async function listVenueOrCityHints(query: string): Promise<{ venueName?:
           (r) => r.city?.toLowerCase() === city.city.toLowerCase() && r.country?.toLowerCase() === city.country.toLowerCase()
         )
       ) {
-        results.push({ city: city.city, country: city.country });
+        results.push({ city: city.city, country: city.country, lat: city.lat, lng: city.lng });
       }
     }
 
@@ -1669,12 +1681,12 @@ export async function listVenueOrCityHints(query: string): Promise<{ venueName?:
   const [cityRows, venueRows] = await Promise.all([
     supabase
       .from('cities')
-      .select('city,country')
+      .select('city,country,latitude,longitude')
       .or(`city.ilike.${like},country.ilike.${like}`)
       .limit(8),
     supabase
       .from('venues')
-      .select('name,city_id,city:city_id(city,country)')
+      .select('name,country,latitude,longitude,city_id,city:city_id(city,country)')
       .ilike('name', like)
       .limit(8),
   ]);
@@ -1682,18 +1694,23 @@ export async function listVenueOrCityHints(query: string): Promise<{ venueName?:
   if (cityRows.error) throw new Error(cityRows.error.message);
   if (venueRows.error) throw new Error(venueRows.error.message);
 
-  const unique: Array<{ venueName?: string; city?: string; country?: string }> = [];
+  const unique: LocationHint[] = [];
   const seen = new Set<string>();
 
   for (const venue of ((venueRows.data as unknown as {
     name: string;
-    city?: { city: string; country: string } | { city: string; country: string }[];
+    country?: string | null;
+    latitude?: number | string | null;
+    longitude?: number | string | null;
+    city?: { city: string; country: string | null } | { city: string; country: string | null }[];
   }[] | null) ?? [])) {
     const cityRow = Array.isArray(venue.city) ? venue.city[0] : venue.city;
     const item = {
       venueName: venue.name,
       city: cityRow?.city ?? undefined,
-      country: cityRow?.country ?? undefined,
+      country: cityRow?.country ?? venue.country ?? undefined,
+      lat: toNumber(venue.latitude),
+      lng: toNumber(venue.longitude),
     };
     const key = JSON.stringify(item);
     if (!seen.has(key)) {
@@ -1702,8 +1719,8 @@ export async function listVenueOrCityHints(query: string): Promise<{ venueName?:
     }
   }
 
-  for (const city of (cityRows.data as { city: string; country: string }[] | null) ?? []) {
-    const item = { city: city.city, country: city.country };
+  for (const city of (cityRows.data as { city: string; country: string; latitude: number | string | null; longitude: number | string | null }[] | null) ?? []) {
+    const item = { city: city.city, country: city.country, lat: toNumber(city.latitude), lng: toNumber(city.longitude) };
     const key = JSON.stringify(item);
     if (!seen.has(key)) {
       seen.add(key);
@@ -1714,16 +1731,20 @@ export async function listVenueOrCityHints(query: string): Promise<{ venueName?:
   return unique.slice(0, 10);
 }
 
-function upsertCity(city: string, country: string, lat: number, lng: number): CityLocation {
+function upsertCity(city: string, country: string, lat?: number, lng?: number): CityLocation {
   const existing = cities.find((entry) => entry.city.toLowerCase() === city.toLowerCase() && entry.country.toLowerCase() === country.toLowerCase());
   if (existing) return existing;
+
+  if (lat === undefined || lng === undefined) {
+    throw new Error('City coordinates are required for new cities.');
+  }
 
   const next: CityLocation = { city, country, lat, lng };
   cities = [...cities, next];
   return next;
 }
 
-function upsertVenue(name: string, locationCity: CityLocation): Venue {
+function upsertVenue(name: string, locationCity: CityLocation, lat = locationCity.lat, lng = locationCity.lng): Venue {
   const existing = venues.find((v) => v.name.toLowerCase() === name.toLowerCase() && v.city.toLowerCase() === locationCity.city.toLowerCase());
   if (existing) return existing;
 
@@ -1733,8 +1754,8 @@ function upsertVenue(name: string, locationCity: CityLocation): Venue {
     city: locationCity.city,
     country: locationCity.country,
     provider: 'user',
-    lat: locationCity.lat,
-    lng: locationCity.lng,
+    lat,
+    lng,
   };
   venues = [...venues, next];
   return next;

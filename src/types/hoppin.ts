@@ -68,6 +68,14 @@ export interface CityLocation {
   lng: number;
 }
 
+export interface LocationHint {
+  venueName?: string;
+  city?: string;
+  country?: string;
+  lat?: number;
+  lng?: number;
+}
+
 export type CheckinScope = 'venue' | 'city';
 
 export interface Checkin {
