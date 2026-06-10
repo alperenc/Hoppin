@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Link } from 'expo-router';
-import MapView, { Marker, Region } from 'react-native-maps';
+import { CityPassportMap, MapRegion } from '@/src/components/CityPassportMap';
 import { CityVisit, CityVisitor, CityStamp, PassportSummary, Profile } from '@/src/types/hoppin';
 import {
   getCurrentProfile,
@@ -19,7 +19,7 @@ const dateOptions: Intl.DateTimeFormatOptions = {
   year: 'numeric',
 };
 
-const DEFAULT_REGION: Region = {
+const DEFAULT_REGION: MapRegion = {
   latitude: 20,
   longitude: 0,
   latitudeDelta: 120,
@@ -188,7 +188,7 @@ export default function Passport() {
     return stamps.filter((stamp) => Number.isFinite(stamp.lat) && Number.isFinite(stamp.lng));
   }, [stamps]);
 
-  const region = useMemo<Region>(() => {
+  const region = useMemo<MapRegion>(() => {
     const mapPrimary = mapReadyStamps[0];
     if (!mapPrimary) {
       return DEFAULT_REGION;
@@ -301,44 +301,13 @@ export default function Passport() {
 
       <Text style={styles.sectionTitle}>City map</Text>
       <View style={styles.card}>
-        {Platform.OS === 'web' ? (
-          <View style={styles.webMapFallback}>
-            <Text style={styles.emptyText}>Map view is not available in this environment.</Text>
-            <Text style={styles.emptyText}>City stamps: {mapReadyStamps.length}</Text>
-          </View>
-        ) : (
-          <MapView style={styles.map} initialRegion={region}>
-            {mapReadyStamps.map((stamp) => {
-              const matchedVisit = cityMapByKey.get(cityKey(stamp.city, stamp.country));
-              const selected = selectedVisit?.city === stamp.city && selectedVisit?.country === stamp.country;
-              return (
-                <Marker
-                  key={`${stamp.city}-${stamp.country}`}
-                  coordinate={{
-                    latitude: stamp.lat,
-                    longitude: stamp.lng,
-                  }}
-                  title={`${stamp.city}, ${stamp.country}`}
-                  description={`${stamp.count} check-ins`}
-                  pinColor={selected ? '#60a5fa' : '#0ea5e9'}
-                  onPress={() => {
-                    if (matchedVisit) {
-                      setSelectedVisit(matchedVisit);
-                    } else {
-                      setSelectedVisit({
-                        city: stamp.city,
-                        country: stamp.country,
-                        firstVisitedAt: stamp.lastVisitedAt,
-                        lastVisitedAt: stamp.lastVisitedAt,
-                        checkinCount: stamp.count,
-                      });
-                    }
-                  }}
-                />
-              );
-            })}
-          </MapView>
-        )}
+        <CityPassportMap
+          cityMapByKey={cityMapByKey}
+          region={region}
+          selectedVisit={selectedVisit}
+          stamps={mapReadyStamps}
+          onSelectVisit={setSelectedVisit}
+        />
       </View>
 
       <Text style={styles.sectionTitle}>Who checked in here</Text>
@@ -492,19 +461,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
     color: '#94a3b8',
     fontSize: 13,
-  },
-  map: {
-    height: 280,
-    borderRadius: 10,
-  },
-  webMapFallback: {
-    borderRadius: 8,
-    backgroundColor: '#0b1220',
-    minHeight: 120,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-    gap: 8,
   },
   emptyText: {
     color: '#94a3b8',
