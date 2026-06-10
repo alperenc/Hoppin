@@ -3,11 +3,11 @@ import { View, StyleSheet, Text, TouchableOpacity, Alert, Share } from 'react-na
 import { useRouter } from 'expo-router';
 import { getCurrentProfile, getFollowCounts, getPassportSummary, setProfileCreatorRole } from '@/src/lib/hoppin';
 import { getAuthUserEmail, isAuthAvailable, signOut as signOutUser } from '@/src/lib/auth';
-import { Profile } from '@/src/types/hoppin';
+import type { Profile as HoppinProfile } from '@/src/types/hoppin';
 
 export default function Profile() {
   const router = useRouter();
-  const [me, setMe] = useState<Profile | null>(null);
+  const [me, setMe] = useState<HoppinProfile | null>(null);
   const [followers, setFollowers] = useState(0);
   const [following, setFollowing] = useState(0);
   const [checkins, setCheckins] = useState(0);
