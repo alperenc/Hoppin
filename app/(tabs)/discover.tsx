@@ -1,152 +1,216 @@
-import { useEffect, useState } from 'react';
-import { View, StyleSheet, Text, ScrollView, TouchableOpacity } from 'react-native';
-import { Link } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Link, useFocusEffect } from 'expo-router';
+import { BadgeCheck, Compass, Sparkles, UserPlus, UsersRound } from 'lucide-react-native';
 import {
   followProfile,
   getCurrentProfile,
   getFollowedProfiles,
-  listProfiles,
   getFollowers,
+  listProfiles,
   unfollowProfile,
 } from '@/src/lib/hoppin';
 import { Profile } from '@/src/types/hoppin';
 
+type PersonCardProps = {
+  followedIds: string[];
+  followerIds: string[];
+  onToggleFollow: (id: string) => void;
+  profile: Profile;
+};
+
+function relationshipLabel(profile: Profile, followedIds: string[], followerIds: string[]): string {
+  const followed = followedIds.includes(profile.id);
+  const follower = followerIds.includes(profile.id);
+  if (followed && follower) return 'Mutual trail';
+  if (followed) return 'In your crew';
+  if (follower) return 'Follows you';
+  return profile.isCreator ? 'Creator pick' : 'Explorer pick';
+}
+
+function PersonCard({ followedIds, followerIds, onToggleFollow, profile }: PersonCardProps) {
+  const followed = followedIds.includes(profile.id);
+  const follower = followerIds.includes(profile.id);
+  const mutual = followed && follower;
+
+  return (
+    <View style={styles.personCard}>
+      <Link href={`/user/${profile.username}`} asChild>
+        <TouchableOpacity style={styles.personInfo}>
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>{profile.displayName.slice(0, 1).toUpperCase()}</Text>
+          </View>
+          <View style={styles.personCopy}>
+            <View style={styles.personNameRow}>
+              <Text style={styles.personName}>{profile.displayName}</Text>
+              {profile.isCreator ? <BadgeCheck color="#38bdf8" size={16} /> : null}
+            </View>
+            <Text style={styles.personHandle}>@{profile.username}</Text>
+            <Text style={styles.relationship}>{relationshipLabel(profile, followedIds, followerIds)}</Text>
+          </View>
+        </TouchableOpacity>
+      </Link>
+      <TouchableOpacity
+        onPress={() => onToggleFollow(profile.id)}
+        style={[styles.followButton, followed ? styles.followingButton : undefined]}
+      >
+        <Text style={[styles.followButtonText, followed ? styles.followingButtonText : undefined]}>
+          {mutual ? 'Mutual' : followed ? 'Following' : follower ? 'Follow back' : 'Follow'}
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 export default function Discover() {
   const [me, setMe] = useState<Profile | null>(null);
-  const [creators, setCreators] = useState<Profile[]>([]);
-  const [explorers, setExplorers] = useState<Profile[]>([]);
+  const [people, setPeople] = useState<Profile[]>([]);
   const [followedIds, setFollowedIds] = useState<string[]>([]);
   const [followerIds, setFollowerIds] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [busyProfileId, setBusyProfileId] = useState<string>();
+  const [errorMessage, setErrorMessage] = useState<string>();
 
-  const refreshRelationships = async () => {
-    const currentProfile = await getCurrentProfile();
+  const load = useCallback(async () => {
+    const [currentProfile, allProfiles] = await Promise.all([getCurrentProfile(), listProfiles()]);
     const [followed, followers] = await Promise.all([
       getFollowedProfiles(currentProfile.id),
       getFollowers(currentProfile.id),
     ]);
 
+    setMe(currentProfile);
+    setPeople(allProfiles.filter((profile) => profile.id !== currentProfile.id));
     setFollowedIds(followed.map((profile) => profile.id));
     setFollowerIds(followers.map((profile) => profile.id));
-  };
-
-  useEffect(() => {
-    let mounted = true;
-
-    const load = async () => {
-      const [currentProfile, allProfiles] = await Promise.all([
-        getCurrentProfile(),
-        listProfiles(),
-      ]);
-      const filteredProfiles = allProfiles.filter((p) => p.id !== currentProfile.id);
-      const [followed, followers] = await Promise.all([
-        getFollowedProfiles(currentProfile.id),
-        getFollowers(currentProfile.id),
-      ]);
-
-      if (mounted) {
-        setMe(currentProfile);
-        setCreators(filteredProfiles.filter((p) => p.isCreator));
-        setExplorers(filteredProfiles.filter((p) => !p.isCreator));
-        setFollowedIds(followed.map((p) => p.id));
-        setFollowerIds(followers.map((p) => p.id));
-      }
-    };
-
-    load().catch(() => {
-      if (mounted) {
-        // no-op fallback for offline or malformed data
-      }
-    });
-
-    return () => {
-      mounted = false;
-    };
+    setErrorMessage(undefined);
+    setIsLoading(false);
   }, []);
 
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+
+      const refresh = async () => {
+        try {
+          await load();
+        } catch {
+          if (active) {
+            setErrorMessage('Could not refresh discovery right now.');
+          }
+        } finally {
+          if (active) {
+            setIsLoading(false);
+          }
+        }
+      };
+
+      void refresh();
+
+      return () => {
+        active = false;
+      };
+    }, [load])
+  );
+
+  const creators = useMemo(() => people.filter((profile) => profile.isCreator), [people]);
+  const explorers = useMemo(() => people.filter((profile) => !profile.isCreator), [people]);
+  const mutualCount = useMemo(() => followedIds.filter((id) => followerIds.includes(id)).length, [followedIds, followerIds]);
+
   const toggleFollow = async (id: string) => {
-    if (!me) return;
-    const currently = followedIds.includes(id);
-    if (currently) {
-      await unfollowProfile(me.id, id);
-    } else {
-      await followProfile(me.id, id);
+    if (!me || busyProfileId) return;
+
+    try {
+      setBusyProfileId(id);
+      if (followedIds.includes(id)) {
+        await unfollowProfile(me.id, id);
+      } else {
+        await followProfile(me.id, id);
+      }
+      await load();
+      setErrorMessage(undefined);
+    } catch {
+      setErrorMessage('Could not update this follow yet.');
+    } finally {
+      setBusyProfileId(undefined);
     }
-    await refreshRelationships();
   };
 
-  const renderPerson = (profile: Profile) => {
-    const isFollowed = followedIds.includes(profile.id);
-    const isFollower = followerIds.includes(profile.id);
-    const isMutual = isFollowed && isFollower;
+  const renderPerson = (profile: Profile) => (
+    <PersonCard
+      key={profile.id}
+      followedIds={followedIds}
+      followerIds={followerIds}
+      onToggleFollow={busyProfileId ? () => undefined : toggleFollow}
+      profile={profile}
+    />
+  );
 
+  if (isLoading) {
     return (
-      <View key={profile.id} style={styles.profileRow}>
-        <Link href={`/user/${profile.username}`} asChild>
-          <TouchableOpacity style={styles.profileInfo}>
-            <View>
-              <Text style={styles.profileName}>{profile.displayName}</Text>
-              <Text style={styles.profileHandle}>
-                @{profile.username} {profile.isCreator ? '• influencer' : '• explorer'}
-              </Text>
-              <Text style={styles.followState}>
-                {isMutual ? 'Mutual' : isFollowed ? 'Following' : isFollower ? 'Follows you' : 'Not following'}
-              </Text>
-            </View>
-          </TouchableOpacity>
-        </Link>
-        <TouchableOpacity
-          onPress={() => toggleFollow(profile.id)}
-          style={[
-            styles.followButton,
-            isFollowed ? styles.followingButton : styles.followButton,
-          ]}
-        >
-          <Text style={styles.followButtonText}>
-            {isMutual ? 'Unfollow' : isFollowed ? 'Following' : isFollower ? 'Follow back' : 'Follow'}
-          </Text>
-        </TouchableOpacity>
+      <View style={styles.loadingWrap}>
+        <ActivityIndicator size="large" color="#38bdf8" />
+        <Text style={styles.loadingText}>Finding people to follow...</Text>
       </View>
     );
-  };
+  }
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>Discover Creators</Text>
-      <Text style={styles.subtitle}>Follow creators to shape what appears in your stream.</Text>
-
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Creator-led feed</Text>
-        <Text style={styles.cardText}>
-          You are following {followedIds.length} people.
-          {'\n'}{followerIds.length} people follow you.
-        </Text>
+      <View style={styles.hero}>
+        <View style={styles.kickerRow}>
+          <Sparkles color="#facc15" size={16} />
+          <Text style={styles.kicker}>Discover</Text>
+        </View>
+        <Text style={styles.title}>Find the people behind the pours.</Text>
+        <Text style={styles.subtitle}>Follow creators for new beer trails, and keep explorers close when your routes overlap.</Text>
       </View>
 
-      <Text style={styles.sectionTitle}>Suggested people</Text>
-      {!creators.length && !explorers.length ? (
-        <Text style={styles.empty}>No creators available in this workspace.</Text>
-      ) : (
+      <View style={styles.statsRow}>
+        <View style={styles.statCard}>
+          <UsersRound color="#86efac" size={18} />
+          <Text style={styles.statValue}>{followedIds.length}</Text>
+          <Text style={styles.statLabel}>following</Text>
+        </View>
+        <View style={styles.statCard}>
+          <UserPlus color="#bae6fd" size={18} />
+          <Text style={styles.statValue}>{followerIds.length}</Text>
+          <Text style={styles.statLabel}>followers</Text>
+        </View>
+        <View style={styles.statCard}>
+          <Compass color="#facc15" size={18} />
+          <Text style={styles.statValue}>{mutualCount}</Text>
+          <Text style={styles.statLabel}>mutual</Text>
+        </View>
+      </View>
+
+      {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+
+      {creators.length ? (
         <>
-          <Text style={styles.sectionTitle}>Suggested creators</Text>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Creator taps</Text>
+            <Text style={styles.sectionMeta}>{creators.length} people</Text>
+          </View>
           {creators.map(renderPerson)}
-          {!!explorers.length && (
-            <>
-              <Text style={styles.sectionTitle}>Explore other profiles</Text>
-              {explorers.map(renderPerson)}
-            </>
-          )}
         </>
-      )}
+      ) : null}
 
-      <Text style={styles.sectionTitle}>Why following mode?</Text>
-      <View style={styles.card}>
-        <Text style={styles.cardText}>Public check-ins are visible to everyone. Followers-only check-ins are visible to your audience only. Private stays private.</Text>
-      </View>
+      {explorers.length ? (
+        <>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Travel overlaps</Text>
+            <Text style={styles.sectionMeta}>{explorers.length} people</Text>
+          </View>
+          {explorers.map(renderPerson)}
+        </>
+      ) : null}
 
-      <Text style={styles.sectionTitle}>Your account</Text>
-      <View style={styles.card}>
-        <Text style={styles.cardText}>Signed in as {me?.displayName ?? 'Unknown'}.</Text>
-      </View>
+      {!people.length ? (
+        <View style={styles.emptyCard}>
+          <Text style={styles.emptyTitle}>No profiles to discover yet.</Text>
+          <Text style={styles.emptyText}>New creators and explorers will appear here as they join Hoppin.</Text>
+        </View>
+      ) : null}
     </ScrollView>
   );
 }
@@ -159,77 +223,187 @@ const styles = StyleSheet.create({
   content: {
     padding: 16,
     paddingTop: 48,
+    paddingBottom: 32,
+  },
+  loadingWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#071022',
+    padding: 24,
+  },
+  loadingText: {
+    color: '#94a3b8',
+    marginTop: 10,
+  },
+  hero: {
+    gap: 12,
+    marginBottom: 14,
+  },
+  kickerRow: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#334155',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: '#0b1220',
+  },
+  kicker: {
+    color: '#facc15',
+    fontWeight: '900',
+    fontSize: 12,
+    textTransform: 'uppercase',
   },
   title: {
     color: '#f8fafc',
-    fontSize: 28,
-    fontWeight: '700',
+    fontSize: 32,
+    lineHeight: 38,
+    fontWeight: '900',
   },
   subtitle: {
     color: '#94a3b8',
-    marginTop: 8,
-    marginBottom: 12,
+    fontSize: 15,
+    lineHeight: 22,
   },
-  sectionTitle: {
-    color: '#e2e8f0',
-    marginTop: 12,
-    marginBottom: 8,
-    fontWeight: '700',
+  statsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
   },
-  card: {
+  statCard: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#1f3a5f',
+    borderRadius: 8,
+    padding: 12,
     backgroundColor: '#111b34',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
+    gap: 6,
   },
-  cardTitle: {
-    color: '#e2e8f0',
-    marginBottom: 6,
-    fontWeight: '700',
+  statValue: {
+    color: '#f8fafc',
+    fontWeight: '900',
+    fontSize: 20,
   },
-  cardText: {
+  statLabel: {
     color: '#94a3b8',
+    fontSize: 12,
   },
-  profileRow: {
-    backgroundColor: '#111b34',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 10,
+  sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    marginTop: 6,
+    marginBottom: 8,
   },
-  profileName: {
+  sectionTitle: {
     color: '#f8fafc',
-    fontWeight: '700',
+    fontWeight: '900',
+    fontSize: 18,
   },
-  profileInfo: {
+  sectionMeta: {
+    color: '#94a3b8',
+  },
+  errorText: {
+    color: '#fca5a5',
+    borderWidth: 1,
+    borderColor: '#7f1d1d',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 12,
+    backgroundColor: '#2f1116',
+    textAlign: 'center',
+  },
+  personCard: {
+    borderWidth: 1,
+    borderColor: '#1f3a5f',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 10,
+    backgroundColor: '#111b34',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  personInfo: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  avatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f59e0b',
+  },
+  avatarText: {
+    color: '#111827',
+    fontWeight: '900',
+  },
+  personCopy: {
     flex: 1,
   },
-  profileHandle: {
-    color: '#94a3b8',
-    marginTop: 2,
+  personNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
-  followButton: {
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#f59e0b',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+  personName: {
+    color: '#f8fafc',
+    fontWeight: '900',
   },
-  followingButton: {
-    borderColor: '#94a3b8',
-  },
-  followButtonText: {
-    color: '#f59e0b',
-    fontWeight: '700',
-  },
-  followState: {
+  personHandle: {
     color: '#94a3b8',
     marginTop: 2,
     fontSize: 12,
   },
-  empty: {
-    color: '#94a3b8',
+  relationship: {
+    color: '#bae6fd',
+    marginTop: 4,
+    fontWeight: '800',
+    fontSize: 12,
+  },
+  followButton: {
+    borderRadius: 8,
+    backgroundColor: '#22c55e',
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+  },
+  followingButton: {
+    backgroundColor: '#102036',
+    borderWidth: 1,
+    borderColor: '#1f3a5f',
+  },
+  followButtonText: {
+    color: '#052e16',
+    fontWeight: '900',
+  },
+  followingButtonText: {
+    color: '#bae6fd',
+  },
+  emptyCard: {
+    borderWidth: 1,
+    borderColor: '#34513d',
+    borderRadius: 8,
+    padding: 16,
+    backgroundColor: '#10251c',
+    alignItems: 'center',
+  },
+  emptyTitle: {
+    color: '#f8fafc',
+    fontWeight: '900',
+    fontSize: 18,
+  },
+  emptyText: {
+    color: '#a7f3d0',
+    marginTop: 6,
+    textAlign: 'center',
+    lineHeight: 20,
   },
 });

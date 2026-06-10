@@ -106,7 +106,12 @@ export default function Profile() {
           ) : null}
         </>
       ) : (
-        <Text style={styles.emailText}>Local mode: seeded profile data is used.</Text>
+        <>
+          <Text style={styles.emailText}>Demo mode: this is the seeded Alex Pilsner profile.</Text>
+          <TouchableOpacity style={[styles.cta, styles.secondary]} onPress={() => router.replace('/auth')}>
+            <Text style={styles.ctaText}>Sign in or create account</Text>
+          </TouchableOpacity>
+        </>
       )}
       {isAuthAvailable && accountEmail ? (
         <>

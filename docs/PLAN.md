@@ -3,11 +3,11 @@
 ## What is built now
 - Seeded follow-first social model:
   - Profiles and follows in `src/lib/hoppin.ts`
-  - Home feed with followers-first visibility (`public` and `followers`)
-  - Discover screen with creator/explorer follow actions
+  - Home tap-trail feed with crew-first ranking, live stamp cards, feed stats, and refresh
+  - Discover screen with creator/explorer relationship cards, mutual/follower states, and follow actions
   - Passport summary + city stamps
   - Passport map view using `react-native-maps` on native platforms
-- Check-in composer for venue or city scope + privacy + rating + optional coords
+- Passport-stamp composer with inferred venue/city scope, live stamp preview, hidden coordinate capture, collapsed details, privacy, rating, and notes
   - Local Supabase schema scaffold in `supabase/migrations/0001_hoppin_core.sql`
 - Auth route and session gating:
   - `app/index.tsx` routes to `/auth` when Supabase mode is configured but no session exists.
@@ -34,6 +34,7 @@
    - Add barcode/label scan (optional) to support beer lookup and dedupe.
 
 3. **Social surface hardening**
+   - ✅ Replace scaffold home/discover surfaces with app-like feed and relationship screens.
    - ✅ Replace plain discovery list with:
      - ✅ Suggested creators
      - ✅ Suggested explorers

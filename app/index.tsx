@@ -5,7 +5,7 @@ import { isAuthAvailable, hasAuthenticatedSession } from '@/src/lib/auth';
 import { getCurrentProfile } from '@/src/lib/hoppin';
 import { hasCompletedOnboarding } from '@/src/lib/onboarding';
 
-type Destination = '/(tabs)' | '/auth' | '/onboarding';
+type Destination = '/home' | '/auth' | '/onboarding';
 
 export default function IndexRoute() {
   const [destination, setDestination] = useState<Destination | null>(null);
@@ -23,7 +23,7 @@ export default function IndexRoute() {
 
         const current = await getCurrentProfile();
         const onboardingDone = await hasCompletedOnboarding(current.id);
-        setDestination(onboardingDone ? '/(tabs)' : '/onboarding');
+        setDestination(onboardingDone ? '/home' : '/onboarding');
       } catch {
         if (isAuthAvailable) {
           setDestination('/auth');
@@ -31,7 +31,7 @@ export default function IndexRoute() {
         }
         const current = await getCurrentProfile();
         const onboardingDone = await hasCompletedOnboarding(current.id);
-        setDestination(onboardingDone ? '/(tabs)' : '/onboarding');
+        setDestination(onboardingDone ? '/home' : '/onboarding');
       }
     };
 

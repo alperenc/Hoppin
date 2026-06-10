@@ -17,12 +17,7 @@ export default function AuthRoute() {
 
     const resolve = async () => {
       try {
-        if (!isAuthAvailable) {
-          router.replace('/(tabs)');
-          return;
-        }
-
-        const auth = await getAuthState();
+        const auth = isAuthAvailable ? await getAuthState() : { user: null };
         if (!mounted) return;
         if (auth.user) {
           router.replace('/');
@@ -94,7 +89,18 @@ export default function AuthRoute() {
     >
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <Text style={styles.title}>{mode === 'signIn' ? 'Welcome back' : 'Create account'}</Text>
-        <Text style={styles.subtitle}>Sign in to sync your feed across devices.</Text>
+        <Text style={styles.subtitle}>
+          {isAuthAvailable ? 'Sign in to sync your feed across devices.' : 'This local build is running with seeded demo data.'}
+        </Text>
+
+        {!isAuthAvailable ? (
+          <View style={styles.notice}>
+            <Text style={styles.noticeTitle}>Demo profile active</Text>
+            <Text style={styles.noticeText}>
+              You are viewing Alex Pilsner from the local seed data. Set `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` to enable real sign up and login.
+            </Text>
+          </View>
+        ) : null}
 
         <TextInput
           autoCapitalize="none"
@@ -102,7 +108,8 @@ export default function AuthRoute() {
           keyboardType="email-address"
           placeholder="Email"
           placeholderTextColor="#64748b"
-          style={styles.input}
+          editable={isAuthAvailable}
+          style={[styles.input, !isAuthAvailable ? styles.inputDisabled : undefined]}
           value={email}
           onChangeText={setEmail}
         />
@@ -111,18 +118,25 @@ export default function AuthRoute() {
           placeholder="Password"
           placeholderTextColor="#64748b"
           secureTextEntry
-          style={styles.input}
+          editable={isAuthAvailable}
+          style={[styles.input, !isAuthAvailable ? styles.inputDisabled : undefined]}
           value={password}
           onChangeText={setPassword}
         />
 
         {!!status ? <Text style={styles.status}>{status}</Text> : null}
 
-        <TouchableOpacity style={styles.primary} onPress={submit} disabled={isSubmitting}>
+        <TouchableOpacity style={[styles.primary, !isAuthAvailable || isSubmitting ? styles.disabled : undefined]} onPress={submit} disabled={!isAuthAvailable || isSubmitting}>
           <Text style={styles.primaryText}>
             {isSubmitting ? 'Working...' : mode === 'signIn' ? 'Sign in' : 'Sign up'}
           </Text>
         </TouchableOpacity>
+
+        {!isAuthAvailable ? (
+          <TouchableOpacity style={styles.demoButton} onPress={() => router.replace('/')}>
+            <Text style={styles.demoButtonText}>Continue with demo profile</Text>
+          </TouchableOpacity>
+        ) : null}
 
         <TouchableOpacity
           style={styles.secondary}
@@ -166,15 +180,35 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
     marginBottom: 24,
   },
+  notice: {
+    backgroundColor: '#111b34',
+    borderColor: '#334155',
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 16,
+    padding: 12,
+  },
+  noticeTitle: {
+    color: '#f8fafc',
+    fontWeight: '800',
+    marginBottom: 6,
+  },
+  noticeText: {
+    color: '#cbd5e1',
+    lineHeight: 20,
+  },
   input: {
     backgroundColor: '#0f172a',
-    borderRadius: 12,
+    borderRadius: 8,
     color: '#e2e8f0',
     borderWidth: 1,
     borderColor: '#1f2937',
     marginBottom: 12,
     paddingHorizontal: 12,
     paddingVertical: 12,
+  },
+  inputDisabled: {
+    opacity: 0.5,
   },
   status: {
     color: '#f8fafc',
@@ -186,7 +220,7 @@ const styles = StyleSheet.create({
   },
   primary: {
     backgroundColor: '#f59e0b',
-    borderRadius: 10,
+    borderRadius: 8,
     padding: 12,
     alignItems: 'center',
     marginTop: 4,
@@ -195,6 +229,17 @@ const styles = StyleSheet.create({
     color: '#111827',
     fontWeight: '700',
   },
+  demoButton: {
+    marginTop: 12,
+    backgroundColor: '#0ea5e9',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+  },
+  demoButtonText: {
+    color: '#f8fafc',
+    fontWeight: '800',
+  },
   secondary: {
     marginTop: 12,
     paddingVertical: 12,
@@ -202,5 +247,8 @@ const styles = StyleSheet.create({
   },
   secondaryText: {
     color: '#38bdf8',
+  },
+  disabled: {
+    opacity: 0.55,
   },
 });
