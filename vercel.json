@@ -6,7 +6,7 @@
   "rewrites": [
     {
       "source": "/user/:slug",
-      "destination": "/user/[slug].html"
+      "destination": "/user/%5Bslug%5D.html"
     }
   ]
 }
