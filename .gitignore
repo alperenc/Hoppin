@@ -1,8 +1,12 @@
 # Expo
 .expo/
 web-build/
+dist/
 # Environment
 .env
 .env.local
 # Node
 node_modules/
+.vercel
+.env*.local
+supabase/.temp/
