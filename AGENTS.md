@@ -31,6 +31,10 @@ This file is the repo-specific workflow and validation guide to use by default.
   after GitHub reports the PR checks are passing or not required.
 - Local verification can support debugging, but it is not a substitute for
   passing GitHub PR checks when a workflow is configured.
+- If an automated review has been requested, do not merge while it is pending
+  or only acknowledged. Wait for the review to either report no findings or
+  provide actionable threads, then address and resolve those threads before
+  merging.
 
 ## Validation Defaults
 
