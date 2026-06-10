@@ -38,9 +38,10 @@ create table if not exists public.breweries (
   name text not null,
   description text,
   website text,
-  created_at timestamptz not null default now(),
-  unique (lower(name))
+  created_at timestamptz not null default now()
 );
+
+create unique index if not exists breweries_lower_name_idx on public.breweries (lower(name));
 
 create table if not exists public.beers (
   id uuid primary key default gen_random_uuid(),
@@ -52,9 +53,10 @@ create table if not exists public.beers (
   barcode text,
   created_by uuid references public.profiles(id) on delete set null,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  unique (lower(name), style)
+  updated_at timestamptz not null default now()
 );
+
+create unique index if not exists beers_lower_name_style_idx on public.beers (lower(name), style);
 
 create table if not exists public.venues (
   id uuid primary key default gen_random_uuid(),
@@ -105,7 +107,8 @@ create index if not exists checkins_privacy_idx on public.checkins(privacy);
 create index if not exists checkins_venue_idx on public.checkins(venue_id);
 create index if not exists checkins_city_idx on public.checkins(city_id);
 
-create or replace view public.passport_summary as
+create or replace view public.passport_summary
+with (security_invoker = true) as
   select
     c.profile_id,
     count(*) as checkins_count,
@@ -120,7 +123,8 @@ create or replace view public.passport_summary as
   left join public.beers b on c.beer_id = b.id
   group by c.profile_id;
 
-create or replace view public.city_stamps as
+create or replace view public.city_stamps
+with (security_invoker = true) as
   select
     c.profile_id,
     coalesce(ci.city, vc.city) as city,

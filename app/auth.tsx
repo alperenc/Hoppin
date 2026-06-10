@@ -25,7 +25,7 @@ export default function AuthRoute() {
         const auth = await getAuthState();
         if (!mounted) return;
         if (auth.user) {
-          router.replace('/(tabs)');
+          router.replace('/');
           return;
         }
       } catch {
@@ -58,14 +58,14 @@ export default function AuthRoute() {
       if (mode === 'signIn') {
         const result = await signInWithEmail(normalizedEmail, password);
         if (result.data.session) {
-          router.replace('/(tabs)');
+          router.replace('/');
           return;
         }
         setStatus('Sign in failed. Check your credentials.');
       } else {
         const result = await signUpWithEmail(normalizedEmail, password);
         if (result.data.session) {
-          router.replace('/(tabs)');
+          router.replace('/');
           return;
         }
         setStatus('Account created. Check your email to confirm your signup.');
