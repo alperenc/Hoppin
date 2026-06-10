@@ -22,11 +22,12 @@
 1. **Backend integration (critical)**
    - Replace seeded in-memory service calls with Supabase queries. ✅
    - Add RPCs/views for:
-     - follower feed
-     - passport summary
-     - city-stamp map data
-   - Add migration constraints/indexes for city uniqueness, check-in shape, and follower visibility.
-   - Enforce auth for profiles and follows. Next: finalize app auth session flow after schema stabilization.
+     - follower feed ✅
+     - passport summary ✅
+     - city-stamp map data ✅
+   - Add migration constraints/indexes for city uniqueness, check-in shape, and follower visibility. ✅
+   - Enforce auth for profiles and follows. ✅
+   - Next: finalize app auth session flow after schema stabilization.
 
 2. **Location + beer enrichment**
    - Add optional Google Places/Maps autocomplete + geocoding for check-in location.
