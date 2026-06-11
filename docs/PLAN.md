@@ -12,7 +12,7 @@
 - Auth route and session gating:
   - `app/index.tsx` routes to `/auth` when Supabase mode is configured but no session exists.
   - `src/lib/auth.ts` centralizes auth helpers and sign-out/session-change subscriptions.
-  - `app/auth.tsx` supports email sign-in/sign-up flow.
+  - `app/auth.tsx` supports Google OAuth plus email sign-in/sign-up flow.
   - `app/_layout.tsx` listens for auth session state changes and routes back to `/auth` on sign-out.
   - Onboarding and profile screens let signed-in users claim and edit their display name and public handle.
 - Location enrichment in check-in:
@@ -32,6 +32,7 @@
    - Add migration constraints/indexes for city uniqueness, check-in shape, and follower visibility. ✅
    - Enforce auth for profiles and follows. ✅
    - Finalize app auth session flow after schema stabilization. ✅
+   - Add Google OAuth sign-in while keeping email/password fallback. ✅
 
 2. **Location + beer enrichment**
    - Add optional Google Places/Maps autocomplete + geocoding for check-in location. ✅
