@@ -54,6 +54,11 @@ type DbProfile = {
   created_at: string;
 };
 
+type UpdateProfileInput = {
+  displayName: string;
+  username: string;
+};
+
 type DbCity = {
   id: string;
   city: string;
@@ -345,8 +350,18 @@ function sanitizeUsername(raw: string): string {
     .replace(/[^a-z0-9_]+/g, '_')
     .replace(/_+/g, '_')
     .replace(/^_+|_+$/g, '');
+  const fallback = raw.toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 8) || 'hoppin';
 
-  return normalized.slice(0, 36) || `user_${raw.slice(0, 8).toLowerCase()}`;
+  return normalized.slice(0, 36) || `user_${fallback}`;
+}
+
+function normalizeEditableUsername(raw: string): string {
+  const username = sanitizeUsername(raw);
+  if (username.length >= 3) {
+    return username;
+  }
+
+  return `${username}_hop`.slice(0, 36);
 }
 
 function buildProfileFromAuthUser(user: {
@@ -781,6 +796,61 @@ export async function setProfileCreatorRole(profileId: Id, isCreator: boolean): 
     .single();
 
   if (error) {
+    throw new Error(error.message);
+  }
+
+  return toProfile(data);
+}
+
+export async function updateProfileIdentity(profileId: Id, input: UpdateProfileInput): Promise<Profile> {
+  const resolvedProfileId = await resolveProfileId(profileId);
+  const displayName = input.displayName.trim();
+  const username = normalizeEditableUsername(input.username);
+
+  if (!displayName) {
+    throw new Error('Display name is required.');
+  }
+
+  if (!(await canUseSupabaseBackend())) {
+    const existing = profiles.find((profile) => profile.id === resolvedProfileId);
+    if (!existing) {
+      throw new Error('Profile not found.');
+    }
+
+    const usernameTaken = profiles.some(
+      (profile) => profile.id !== resolvedProfileId && profile.username.toLowerCase() === username
+    );
+    if (usernameTaken) {
+      throw new Error('That handle is already taken.');
+    }
+
+    const nextProfile = {
+      ...existing,
+      displayName,
+      username,
+    };
+    profiles = profiles.map((profile) => (profile.id === resolvedProfileId ? nextProfile : profile));
+    return nextProfile;
+  }
+
+  if (!uuidRegex.test(resolvedProfileId)) {
+    throw new Error('Profile id is not a valid UUID.');
+  }
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .update({
+      display_name: displayName,
+      username,
+    })
+    .eq('id', resolvedProfileId)
+    .select('id,username,display_name,avatar_url,is_creator,created_at')
+    .single();
+
+  if (error) {
+    if (error.code === '23505') {
+      throw new Error('That handle is already taken.');
+    }
     throw new Error(error.message);
   }
 
