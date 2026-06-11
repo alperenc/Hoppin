@@ -1,5 +1,6 @@
 import { makeRedirectUri } from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
+import { Platform } from 'react-native';
 import { AuthChangeEvent, AuthResponse, Session, User } from '@supabase/supabase-js';
 import { isSupabaseConfigured, supabase } from '@/src/lib/supabase';
 
@@ -14,11 +15,16 @@ export type SocialAuthProvider = 'google';
 
 export const isAuthAvailable = isSupabaseConfigured;
 
-const oauthRedirectTo = () =>
-  makeRedirectUri({
+const oauthRedirectTo = () => {
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location.origin) {
+    return `${window.location.origin}/auth`;
+  }
+
+  return makeRedirectUri({
     scheme: 'hoppin',
     path: 'auth',
   });
+};
 
 function getOAuthParams(url: string): URLSearchParams {
   const parsed = new URL(url);
