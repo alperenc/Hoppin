@@ -60,11 +60,8 @@
 
 ## Open questions before launch
 - Foursquare/Swarm integration policy for posting:
-  - create dual-post model (local feed + optional venue check-in provider post), or
-  - keep first-party check-in only until product-market fit.
+  - Decision: keep first-party check-in only until product-market fit. External venue posting is future opt-in. See `docs/LAUNCH_POLICY.md`.
 - Beer dataset quality:
-  - Open Brewery DB for base data
-  - Manual brewery add-on flow for unmapped local brands
+  - Decision: user-created beers and barcode-backed records are canonical at launch. Dataset enrichment must be optional and non-blocking. See `docs/LAUNCH_POLICY.md`.
 - Influencer launch policy:
-  - account verification and anti-spam controls
-  - private profile defaults and discoverability settings
+  - Decision: creator mode is not verification; verification and report/block flows are future trust controls. Keep public distribution conservative. See `docs/LAUNCH_POLICY.md`.
