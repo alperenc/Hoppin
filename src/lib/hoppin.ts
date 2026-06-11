@@ -1,4 +1,4 @@
-import { BeerStyle, Checkin, CityLocation, CityStamp, CityVisit, CityVisitor, Follow, FollowFeedItem, LocationHint, PassportSummary, Profile, CheckinScope, PrivacyLevel, Venue } from '@/src/types/hoppin';
+import { Beer, BeerStyle, Checkin, CityLocation, CityStamp, CityVisit, CityVisitor, Follow, FollowFeedItem, LocationHint, PassportSummary, Profile, CheckinScope, PrivacyLevel, Venue } from '@/src/types/hoppin';
 import { isSupabaseConfigured, supabase } from '@/src/lib/supabase';
 
 type Id = string;
@@ -10,6 +10,7 @@ type DbBeer = {
   abv: number | string | null;
   ibu: number | string | null;
   brewery_id: string | null;
+  barcode?: string | null;
   created_at: string;
   created_by: string | null;
 };
@@ -20,10 +21,15 @@ type MockBeer = DbBeer & {
   breweryName?: string;
 };
 
+type DbBeerBarcodeClaim = {
+  beer_id: string;
+};
+
 type CreateCheckinInput = {
   beerName: string;
   style: BeerStyle;
   breweryName?: string;
+  barcode?: string;
   scope: CheckinScope;
   privacy: PrivacyLevel;
   note?: string;
@@ -138,6 +144,7 @@ type DbProfileCheckinBeer = {
   abv: number | string | null;
   ibu: number | string | null;
   brewery_id: string | null;
+  barcode?: string | null;
   created_by: string | null;
   created_at: string;
 };
@@ -412,6 +419,17 @@ function normalizeText(value: string): string {
   return value.trim();
 }
 
+function normalizeBarcode(value?: string): string | undefined {
+  const normalized = value?.replace(/[^0-9A-Za-z]/g, '').trim();
+  if (!normalized) return undefined;
+
+  if (/^0\d{12}$/.test(normalized)) {
+    return normalized.slice(1);
+  }
+
+  return normalized;
+}
+
 function normalizeBeer(beer: MockBeer) {
   return {
     id: beer.id,
@@ -427,6 +445,7 @@ function normalizeBeer(beer: MockBeer) {
       : undefined,
     createdBy: beer.createdBy,
     createdAt: beer.createdAt,
+    barcode: beer.barcode ?? undefined,
   };
 }
 
@@ -528,6 +547,7 @@ function mapDbProfileCheckin(row: DbProfileCheckinRow, venueCityById: Map<string
       brewery: brewery ? { id: brewery.id, name: brewery.name } : undefined,
       createdBy: beers?.created_by ?? '',
       createdAt: beers?.created_at ?? now(),
+      barcode: beers?.barcode ?? undefined,
     },
     scope: row.scope,
     city:
@@ -854,15 +874,122 @@ async function findOrCreateBrewery(name: string | undefined): Promise<string | n
   return inserted.id;
 }
 
-async function findOrCreateBeer(name: string, style: BeerStyle, authorId: Id, breweryName?: string): Promise<DbBeer> {
+export async function lookupBeerByBarcode(rawBarcode: string): Promise<Beer | null> {
+  const barcode = normalizeBarcode(rawBarcode);
+  if (!barcode) return null;
+
+  if (!useSupabase()) {
+    const beer = beers.find((candidate) => normalizeBarcode(candidate.barcode ?? undefined) === barcode);
+    return beer ? normalizeBeer(beer) : null;
+  }
+
+  const claimedBeerId = await findClaimedBeerIdByBarcode(barcode);
+  if (claimedBeerId) {
+    const { data: claimedRows, error: claimedError } = await supabase
+      .from('beers')
+      .select('id,name,style,abv,ibu,brewery_id,barcode,created_at,created_by,breweries(id,name)')
+      .eq('id', claimedBeerId)
+      .limit(1);
+    if (claimedError) throw new Error(claimedError.message);
+
+    const claimedRow = (claimedRows?.[0] as (DbBeer & { breweries?: DbBrewery[] | DbBrewery | null }) | undefined);
+    if (claimedRow) {
+      return mapBeerLookupRow(claimedRow, barcode);
+    }
+  }
+
+  const { data, error } = await supabase
+    .from('beers')
+    .select('id,name,style,abv,ibu,brewery_id,barcode,created_at,created_by,breweries(id,name)')
+    .eq('barcode', barcode)
+    .limit(1);
+  if (error) throw new Error(error.message);
+
+  const row = (data?.[0] as (DbBeer & { breweries?: DbBrewery[] | DbBrewery | null }) | undefined);
+  if (!row) return null;
+
+  return mapBeerLookupRow(row, barcode);
+}
+
+function mapBeerLookupRow(row: DbBeer & { breweries?: DbBrewery[] | DbBrewery | null }, fallbackBarcode?: string): Beer {
+  const brewery = Array.isArray(row.breweries) ? row.breweries[0] : row.breweries;
+
+  return {
+    id: row.id,
+    name: row.name,
+    style: row.style,
+    abv: toNumber(row.abv),
+    ibu: toInt(row.ibu),
+    brewery: brewery ? { id: brewery.id, name: brewery.name } : undefined,
+    createdBy: row.created_by ?? '',
+    createdAt: row.created_at,
+    barcode: row.barcode ?? fallbackBarcode,
+  };
+}
+
+async function findClaimedBeerIdByBarcode(barcode: string): Promise<string | undefined> {
+  const { data, error } = await supabase
+    .from('beer_barcode_claims')
+    .select('beer_id')
+    .eq('barcode', barcode)
+    .limit(1);
+  if (error) throw new Error(error.message);
+
+  return (data?.[0] as DbBeerBarcodeClaim | undefined)?.beer_id;
+}
+
+async function findDbBeerById(beerId: string): Promise<DbBeer | undefined> {
+  const { data, error } = await supabase
+    .from('beers')
+    .select('id,name,style,abv,ibu,brewery_id,barcode,created_at,created_by')
+    .eq('id', beerId)
+    .limit(1);
+  if (error) throw new Error(error.message);
+
+  return data?.[0] as DbBeer | undefined;
+}
+
+async function findDbBeerByBarcodeClaim(barcode: string): Promise<DbBeer | undefined> {
+  const claimedBeerId = await findClaimedBeerIdByBarcode(barcode);
+  return claimedBeerId ? findDbBeerById(claimedBeerId) : undefined;
+}
+
+async function claimBeerBarcode(beerId: string, profileId: string, barcode: string): Promise<DbBeer | undefined> {
+  const { error } = await supabase.from('beer_barcode_claims').insert({
+    beer_id: beerId,
+    profile_id: profileId,
+    barcode,
+  });
+
+  if (error && error.code !== '23505') {
+    throw new Error(error.message);
+  }
+
+  return findDbBeerByBarcodeClaim(barcode);
+}
+
+async function findOrCreateBeer(name: string, style: BeerStyle, authorId: Id, breweryName?: string, rawBarcode?: string): Promise<DbBeer> {
   const normalizedBeer = normalizeText(name);
+  const barcode = normalizeBarcode(rawBarcode);
   if (!normalizedBeer) {
     throw new Error('Beer name is required.');
   }
 
   if (!useSupabase()) {
-    const existing = beers.find((b) => b.name.toLowerCase() === normalizedBeer.toLowerCase() && b.style === style);
-    if (existing) return existing;
+    const existing = beers.find(
+      (b) =>
+        (barcode && normalizeBarcode(b.barcode ?? undefined) === barcode) ||
+        (b.name.toLowerCase() === normalizedBeer.toLowerCase() && b.style === style)
+    );
+    if (existing) {
+      if (barcode && !existing.barcode) {
+        const updated = { ...existing, barcode };
+        beers = beers.map((beer) => (beer.id === existing.id ? updated : beer));
+        return updated;
+      }
+
+      return existing;
+    }
 
     const next: MockBeer = {
       id: `beer_${beers.length + 1}`,
@@ -874,6 +1001,7 @@ async function findOrCreateBeer(name: string, style: BeerStyle, authorId: Id, br
       abv: null,
       ibu: null,
       brewery_id: null,
+      barcode: barcode ?? null,
       createdAt: now(),
       breweryName,
     };
@@ -881,15 +1009,79 @@ async function findOrCreateBeer(name: string, style: BeerStyle, authorId: Id, br
     return next;
   }
 
+  if (barcode) {
+    const claimedBeer = await findDbBeerByBarcodeClaim(barcode);
+    if (claimedBeer) {
+      return claimedBeer;
+    }
+
+    const { data: barcodeRows, error: barcodeError } = await supabase
+      .from('beers')
+      .select('id,name,style,abv,ibu,brewery_id,barcode,created_at,created_by')
+      .eq('barcode', barcode)
+      .limit(1);
+    if (barcodeError) throw new Error(barcodeError.message);
+
+    if (barcodeRows?.[0]) {
+      return barcodeRows[0] as DbBeer;
+    }
+  }
+
   const { data, error } = await supabase
     .from('beers')
-    .select('id,name,style,abv,ibu,brewery_id,created_at,created_by')
+    .select('id,name,style,abv,ibu,brewery_id,barcode,created_at,created_by')
     .ilike('name', normalizedBeer)
     .eq('style', style)
     .limit(1);
   if (error) throw new Error(error.message);
 
   if (data?.[0]) {
+    if (barcode && data[0].barcode !== barcode) {
+      if (data[0].barcode !== null) {
+        const claimedBeer = await claimBeerBarcode(data[0].id, authorId, barcode);
+        if (claimedBeer) {
+          return claimedBeer;
+        }
+
+        return data[0] as DbBeer;
+      }
+
+      if (data[0].created_by !== authorId) {
+        const claimedBeer = await claimBeerBarcode(data[0].id, authorId, barcode);
+        if (claimedBeer) {
+          return claimedBeer;
+        }
+
+        return data[0] as DbBeer;
+      }
+
+      const { data: updated, error: updateError } = await supabase
+        .from('beers')
+        .update({ barcode })
+        .eq('id', data[0].id)
+        .is('barcode', null)
+        .eq('created_by', authorId)
+        .select('id,name,style,abv,ibu,brewery_id,barcode,created_at,created_by')
+        .single();
+
+      if (!updateError && updated) {
+        return updated as DbBeer;
+      }
+
+      const { data: retryRows, error: retryError } = await supabase
+        .from('beers')
+        .select('id,name,style,abv,ibu,brewery_id,barcode,created_at,created_by')
+        .eq('barcode', barcode)
+        .limit(1);
+      if (!retryError && retryRows?.[0]) {
+        return retryRows[0] as DbBeer;
+      }
+
+      if (updateError) {
+        throw new Error(updateError.message);
+      }
+    }
+
     return data[0] as DbBeer;
   }
 
@@ -901,10 +1093,24 @@ async function findOrCreateBeer(name: string, style: BeerStyle, authorId: Id, br
       style,
       created_by: authorId,
       brewery_id: breweryId,
+      barcode: barcode ?? null,
     })
-    .select('id,name,style,abv,ibu,brewery_id,created_at,created_by')
+    .select('id,name,style,abv,ibu,brewery_id,barcode,created_at,created_by')
     .single();
-  if (insertError) throw new Error(insertError.message);
+  if (insertError) {
+    if (barcode) {
+      const { data: retryRows, error: retryError } = await supabase
+        .from('beers')
+        .select('id,name,style,abv,ibu,brewery_id,barcode,created_at,created_by')
+        .eq('barcode', barcode)
+        .limit(1);
+      if (!retryError && retryRows?.[0]) {
+        return retryRows[0] as DbBeer;
+      }
+    }
+
+    throw new Error(insertError.message);
+  }
   return inserted as DbBeer;
 }
 
@@ -1281,7 +1487,7 @@ export async function listPublicProfileCheckins(profileId: Id): Promise<Checkin[
       photo_urls,
       cities(city,country,latitude,longitude),
       venues(id,name,country,place_provider,provider_place_id,latitude,longitude,city_id),
-      beers(id,name,style,abv,ibu,created_by,created_at,brewery_id)
+      beers(id,name,style,abv,ibu,barcode,created_by,created_at,brewery_id)
       `
     )
     .eq('profile_id', resolvedProfileId)
@@ -1605,7 +1811,7 @@ export async function createCheckin(input: CreateCheckinInput, authorId?: Id): P
 
   if (!useBackend) {
     const city = upsertCity(normalizedCity, normalizedCountry, cityLat, cityLng);
-    const beer = upsertBeer(normalizedBeer, input.style, resolvedAuthorId, input.breweryName?.trim());
+    const beer = upsertBeer(normalizedBeer, input.style, resolvedAuthorId, input.breweryName?.trim(), input.barcode);
     const checkin: Checkin = {
       id: `checkin_${Date.now()}`,
       profileId: resolvedAuthorId,
@@ -1627,7 +1833,7 @@ export async function createCheckin(input: CreateCheckinInput, authorId?: Id): P
   }
 
   const city = await findOrCreateCity(normalizedCity, normalizedCountry, cityLat, cityLng);
-  const beer = await findOrCreateBeer(normalizedBeer, input.style, resolvedAuthorId, input.breweryName?.trim());
+  const beer = await findOrCreateBeer(normalizedBeer, input.style, resolvedAuthorId, input.breweryName?.trim(), input.barcode);
   const venue = input.scope === 'venue' && input.venueName
     ? await findOrCreateVenue(input.venueName.trim(), city, input.lat, input.lng, input.venueProvider ?? 'user', input.venueExternalId)
     : null;
@@ -1671,6 +1877,7 @@ export async function createCheckin(input: CreateCheckinInput, authorId?: Id): P
         : undefined,
       createdBy: beer.created_by ?? resolvedAuthorId,
       createdAt: beer.created_at,
+      barcode: beer.barcode ?? undefined,
     },
     scope: input.scope,
     city: input.scope === 'city'
@@ -1906,9 +2113,22 @@ function upsertVenue(
   return next;
 }
 
-function upsertBeer(name: string, style: BeerStyle, profileId: Id, breweryName?: string) {
-  const existing = beers.find((b) => b.name.toLowerCase() === name.toLowerCase() && b.style === style);
-  if (existing) return existing;
+function upsertBeer(name: string, style: BeerStyle, profileId: Id, breweryName?: string, rawBarcode?: string) {
+  const barcode = normalizeBarcode(rawBarcode);
+  const existing = beers.find(
+    (b) =>
+      (barcode && normalizeBarcode(b.barcode ?? undefined) === barcode) ||
+      (b.name.toLowerCase() === name.toLowerCase() && b.style === style)
+  );
+  if (existing) {
+    if (barcode && !existing.barcode) {
+      const updated = { ...existing, barcode };
+      beers = beers.map((beer) => (beer.id === existing.id ? updated : beer));
+      return updated;
+    }
+
+    return existing;
+  }
 
   const next: MockBeer = {
     id: `beer_${beers.length + 1}`,
@@ -1921,6 +2141,7 @@ function upsertBeer(name: string, style: BeerStyle, profileId: Id, breweryName?:
     created_by: profileId,
     createdBy: profileId,
     createdAt: now(),
+    barcode: barcode ?? null,
     breweryName,
   };
   beers = [...beers, next];

@@ -29,7 +29,8 @@
     },
     "plugins": [
       ["expo-router"],
-      ["expo-location", { "locationAlwaysAndWhenInUsePermission": "Allow Hoppin to suggest nearby bars and venues." }]
+      ["expo-location", { "locationAlwaysAndWhenInUsePermission": "Allow Hoppin to suggest nearby bars and venues." }],
+      ["expo-camera", { "cameraPermission": "Allow Hoppin to scan beer labels and can codes." }]
     ],
     "extra": {
       "eas": {
