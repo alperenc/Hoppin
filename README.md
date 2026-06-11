@@ -13,6 +13,7 @@ The app now includes an influencer-first social model with creator discovery and
 - Check-in composer persists a new record and returns to feed.
 - Auth routing: unauthenticated sessions in Supabase builds are sent to `/auth` for email sign-in/signup, and signed users land in tabs.
 - Check-in now includes venue/city suggestions from local seed data, Supabase hint search, and optional Google Places enrichment through the deployed `/api/places` proxy.
+- Native check-in can scan beer can/label barcodes and dedupe against existing beer records.
 
 Implementation plan for full production rollout is tracked in [/docs/PLAN.md](/docs/PLAN.md).
 

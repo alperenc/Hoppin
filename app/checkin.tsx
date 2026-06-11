@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { BarcodeScanningResult, CameraView, useCameraPermissions } from 'expo-camera';
 import * as Location from 'expo-location';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, Alert, View, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Beer, MapPin, Sparkles, Star, UsersRound } from 'lucide-react-native';
+import { Beer, MapPin, ScanBarcode, Sparkles, Star, UsersRound, X } from 'lucide-react-native';
 import { BeerStyle, LocationHint, PrivacyLevel } from '@/src/types/hoppin';
-import { createCheckin, listVenueOrCityHints } from '@/src/lib/hoppin';
+import { createCheckin, listVenueOrCityHints, lookupBeerByBarcode } from '@/src/lib/hoppin';
 import { resolveProtectedRoute, shouldRouteErrorToAuth } from '@/src/lib/sessionRouting';
 
 const styleChoices: BeerStyle[] = ['ipa', 'pilsner', 'lager', 'porter', 'stout', 'wheat', 'amber', 'sour', 'experimental', 'other'];
@@ -22,8 +23,13 @@ const formatStyle = (style: BeerStyle) => {
 const samePlaceText = (left: string | undefined, right: string) =>
   left?.trim().toLowerCase() === right.trim().toLowerCase();
 
+const normalizeScannedCode = (value: string) => value.replace(/[^0-9A-Za-z]/g, '').trim();
+
 export default function Checkin() {
   const router = useRouter();
+  const beerEditVersion = useRef(0);
+  const scanLookupInFlight = useRef(false);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [beerName, setBeerName] = useState('');
   const [breweryName, setBreweryName] = useState('');
   const [privacy, setPrivacy] = useState<PrivacyLevel>('followers');
@@ -45,6 +51,10 @@ export default function Checkin() {
   const [attempt, setAttempt] = useState(0);
   const [selectedVenueProvider, setSelectedVenueProvider] = useState<LocationHint['provider']>();
   const [selectedVenueExternalId, setSelectedVenueExternalId] = useState<string>();
+  const [scannedBarcode, setScannedBarcode] = useState('');
+  const [scannedBarcodeMatchedBeer, setScannedBarcodeMatchedBeer] = useState(false);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [isResolvingBarcode, setIsResolvingBarcode] = useState(false);
 
   const clearSavedCoordinates = () => {
     setLatitude('');
@@ -54,6 +64,87 @@ export default function Checkin() {
   const clearSelectedVenueReference = () => {
     setSelectedVenueProvider(undefined);
     setSelectedVenueExternalId(undefined);
+  };
+
+  const clearScannedBeerReference = () => {
+    if (scannedBarcode && scannedBarcodeMatchedBeer) {
+      setScannedBarcode('');
+      setScannedBarcodeMatchedBeer(false);
+    }
+  };
+
+  const markBeerFieldsEdited = () => {
+    beerEditVersion.current += 1;
+    clearScannedBeerReference();
+  };
+
+  const openScanner = async () => {
+    if (Platform.OS === 'web') {
+      Alert.alert('Use the mobile app camera', 'Barcode scanning is available on iOS and Android builds.');
+      return;
+    }
+
+    if (cameraPermission?.granted) {
+      setIsScannerOpen(true);
+      return;
+    }
+
+    const permission = await requestCameraPermission();
+    if (permission.granted) {
+      setIsScannerOpen(true);
+      return;
+    }
+
+    Alert.alert('Camera blocked', 'Enable camera permission to scan a can or label.');
+  };
+
+  const applyScannedBarcode = async (result: BarcodeScanningResult) => {
+    if (isResolvingBarcode || scanLookupInFlight.current) {
+      return;
+    }
+
+    const barcode = normalizeScannedCode(result.data);
+    if (!barcode) {
+      return;
+    }
+
+    scanLookupInFlight.current = true;
+    setScannedBarcode(barcode);
+    setScannedBarcodeMatchedBeer(false);
+    setIsScannerOpen(false);
+    setIsResolvingBarcode(true);
+    const lookupEditVersion = beerEditVersion.current;
+    const shouldClearPriorMatchedBeer = scannedBarcodeMatchedBeer;
+
+    try {
+      const matchedBeer = await lookupBeerByBarcode(barcode);
+      if (beerEditVersion.current !== lookupEditVersion) {
+        return;
+      }
+
+      if (matchedBeer) {
+        setScannedBarcodeMatchedBeer(true);
+        setBeerName(matchedBeer.name);
+        setStyle(matchedBeer.style);
+        if (matchedBeer.brewery?.name) {
+          setBreweryName(matchedBeer.brewery.name);
+        }
+      } else if (shouldClearPriorMatchedBeer) {
+        setBeerName('');
+        setBreweryName('');
+        setStyle('ipa');
+      }
+    } catch {
+      // A failed lookup should not block saving a new beer with the scanned code.
+      if (beerEditVersion.current === lookupEditVersion && shouldClearPriorMatchedBeer) {
+        setBeerName('');
+        setBreweryName('');
+        setStyle('ipa');
+      }
+    } finally {
+      scanLookupInFlight.current = false;
+      setIsResolvingBarcode(false);
+    }
   };
 
   useEffect(() => {
@@ -285,6 +376,7 @@ export default function Checkin() {
         beerName,
         style,
         breweryName,
+        barcode: scannedBarcode,
         scope: hasVenue ? 'venue' : 'city',
         privacy,
         note,
@@ -409,8 +501,48 @@ export default function Checkin() {
           placeholderTextColor="#64748b"
           style={styles.heroInput}
           value={beerName}
-          onChangeText={setBeerName}
+          onChangeText={(value) => {
+            setBeerName(value);
+            markBeerFieldsEdited();
+          }}
         />
+        <View style={styles.scanStrip}>
+          <TouchableOpacity style={styles.scanButton} onPress={openScanner} disabled={isResolvingBarcode}>
+            <ScanBarcode color="#7dd3fc" size={18} />
+            <Text style={styles.scanButtonText}>{isResolvingBarcode ? 'Checking code...' : 'Scan can or label'}</Text>
+          </TouchableOpacity>
+          {scannedBarcode ? (
+            <View style={styles.barcodePill}>
+              <Text style={styles.barcodeText}>{scannedBarcode}</Text>
+              <TouchableOpacity
+                accessibilityLabel="Clear scanned barcode"
+                onPress={() => {
+                  beerEditVersion.current += 1;
+                  setScannedBarcode('');
+                  setScannedBarcodeMatchedBeer(false);
+                }}
+              >
+                <X color="#bae6fd" size={15} />
+              </TouchableOpacity>
+            </View>
+          ) : null}
+        </View>
+        {isScannerOpen ? (
+          <View style={styles.scannerPanel}>
+            <CameraView
+              style={styles.cameraView}
+              facing="back"
+              barcodeScannerSettings={{ barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e', 'code128', 'code39', 'qr'] }}
+              onBarcodeScanned={applyScannedBarcode}
+            />
+            <View style={styles.scannerOverlay}>
+              <Text style={styles.scannerText}>Center the can code</Text>
+              <TouchableOpacity style={styles.scannerClose} onPress={() => setIsScannerOpen(false)}>
+                <Text style={styles.scannerCloseText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
       </View>
 
       <View style={styles.panel}>
@@ -497,7 +629,10 @@ export default function Checkin() {
             placeholderTextColor="#64748b"
             style={styles.input}
             value={breweryName}
-            onChangeText={setBreweryName}
+            onChangeText={(value) => {
+              setBreweryName(value);
+              markBeerFieldsEdited();
+            }}
           />
 
           <Text style={styles.sectionLabel}>Style</Text>
@@ -506,7 +641,12 @@ export default function Checkin() {
               <TouchableOpacity
                 key={choice}
                 style={[styles.chip, style === choice ? styles.chipActive : undefined]}
-                onPress={() => setStyle(choice)}
+                onPress={() => {
+                  setStyle(choice);
+                  if (choice !== style) {
+                    markBeerFieldsEdited();
+                  }
+                }}
               >
                 <Text style={[styles.chipText, style === choice ? styles.chipTextActive : undefined]}>{formatStyle(choice)}</Text>
               </TouchableOpacity>
@@ -720,6 +860,82 @@ const styles = StyleSheet.create({
     backgroundColor: '#0b1220',
     fontSize: 18,
     fontWeight: '800',
+  },
+  scanStrip: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    alignItems: 'center',
+  },
+  scanButton: {
+    borderWidth: 1,
+    borderColor: '#1e40af',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#0b1220',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  scanButtonText: {
+    color: '#bfdbfe',
+    fontWeight: '800',
+  },
+  barcodePill: {
+    borderWidth: 1,
+    borderColor: '#075985',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: '#082f49',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  barcodeText: {
+    color: '#e0f2fe',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  scannerPanel: {
+    height: 260,
+    borderRadius: 8,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#1f3a5f',
+    backgroundColor: '#020617',
+  },
+  cameraView: {
+    flex: 1,
+  },
+  scannerOverlay: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    bottom: 12,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(2, 6, 23, 0.78)',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+  },
+  scannerText: {
+    color: '#f8fafc',
+    fontWeight: '800',
+  },
+  scannerClose: {
+    borderRadius: 8,
+    backgroundColor: '#e0f2fe',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  scannerCloseText: {
+    color: '#082f49',
+    fontWeight: '900',
   },
   input: {
     borderWidth: 1,
