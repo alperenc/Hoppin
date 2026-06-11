@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Beer, Compass, MapPinned, Sparkles, Trophy, UsersRound } from 'lucide-react-native';
 import {
@@ -12,6 +12,7 @@ import {
   getFollowedProfiles,
   unfollowProfile,
   setProfileCreatorRole,
+  updateProfileIdentity,
 } from '@/src/lib/hoppin';
 import type { CityVisit, PassportSummary, Profile } from '@/src/types/hoppin';
 import { markOnboardingComplete } from '@/src/lib/onboarding';
@@ -43,6 +44,8 @@ export default function Onboarding() {
   const [isLoading, setIsLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isCreator, setIsCreator] = useState(false);
+  const [displayName, setDisplayName] = useState('');
+  const [username, setUsername] = useState('');
   const [routeError, setRouteError] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
@@ -50,6 +53,8 @@ export default function Onboarding() {
     const current = currentProfile ?? await getCurrentProfile();
     setMe(current);
     setIsCreator(current.isCreator);
+    setDisplayName(current.displayName);
+    setUsername(current.username);
 
     try {
       const [allProfiles, followed] = await Promise.all([listProfiles(), getFollowedProfiles(current.id)]);
@@ -151,16 +156,27 @@ export default function Onboarding() {
 
   const completeOnboarding = async () => {
     if (!me) return;
+    if (!displayName.trim()) {
+      Alert.alert('Name required', 'Add the name people will see on your Hoppin profile.');
+      return;
+    }
+    if (!username.trim()) {
+      Alert.alert('Handle required', 'Add a handle for your public profile link.');
+      return;
+    }
+
     setSaving(true);
     try {
+      let nextProfile = await updateProfileIdentity(me.id, { displayName, username });
       if (isCreator !== me.isCreator) {
-        const next = await setProfileCreatorRole(me.id, isCreator);
-        setMe(next);
+        nextProfile = await setProfileCreatorRole(me.id, isCreator);
       }
+      setMe(nextProfile);
       await markOnboardingComplete(me.id);
       router.replace('/home');
-    } catch {
-      Alert.alert('Could not continue', 'Please try again in a moment.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Please try again in a moment.';
+      Alert.alert('Could not continue', message);
       setSaving(false);
     }
   };
@@ -254,6 +270,31 @@ export default function Onboarding() {
             <Text style={styles.highlightText}>{label}</Text>
           </View>
         ))}
+      </View>
+
+      <Text style={styles.sectionTitle}>Claim your profile</Text>
+      <View style={styles.identityCard}>
+        <TextInput
+          autoCapitalize="words"
+          editable={!saving}
+          placeholder="Display name"
+          placeholderTextColor="#64748b"
+          style={styles.identityInput}
+          value={displayName}
+          onChangeText={setDisplayName}
+        />
+        <View style={styles.handleRow}>
+          <Text style={styles.handlePrefix}>@</Text>
+          <TextInput
+            autoCapitalize="none"
+            editable={!saving}
+            placeholder="handle"
+            placeholderTextColor="#64748b"
+            style={[styles.identityInput, styles.handleInput]}
+            value={username}
+            onChangeText={setUsername}
+          />
+        </View>
       </View>
 
       <Text style={styles.sectionTitle}>Choose your starting lane</Text>
@@ -501,6 +542,39 @@ const styles = StyleSheet.create({
     color: '#e5e7eb',
     fontWeight: '700',
     fontSize: 12,
+  },
+  identityCard: {
+    borderRadius: 8,
+    backgroundColor: '#0b1220',
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    gap: 10,
+    marginBottom: 18,
+    marginTop: 10,
+    padding: 12,
+  },
+  identityInput: {
+    backgroundColor: '#111827',
+    borderColor: '#334155',
+    borderRadius: 8,
+    borderWidth: 1,
+    color: '#f8fafc',
+    minHeight: 48,
+    paddingHorizontal: 12,
+  },
+  handleRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  handlePrefix: {
+    color: '#38bdf8',
+    fontSize: 18,
+    fontWeight: '900',
+    width: 18,
+  },
+  handleInput: {
+    flex: 1,
   },
   sectionTitle: {
     color: '#f8fafc',

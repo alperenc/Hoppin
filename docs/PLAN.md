@@ -14,6 +14,7 @@
   - `src/lib/auth.ts` centralizes auth helpers and sign-out/session-change subscriptions.
   - `app/auth.tsx` supports email sign-in/sign-up flow.
   - `app/_layout.tsx` listens for auth session state changes and routes back to `/auth` on sign-out.
+  - Onboarding and profile screens let signed-in users claim and edit their display name and public handle.
 - Location enrichment in check-in:
   - `app/checkin.tsx` now suggests venues/cities from `listVenueOrCityHints()`.
   - `app/checkin.tsx` can also prefill latitude/longitude and attempt reverse-geocoded city/country from device location.
@@ -47,6 +48,7 @@
      - ✅ creator badges
      - ✅ follower counts and public check-ins
      - ✅ shareable profile/slug
+     - ✅ editable display name and handle
 
 4. **Map and travel surface**
    - ✅ Add country-level filter chips on passport.
