@@ -1,6 +1,7 @@
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { X } from 'lucide-react-native';
 import { isAuthAvailable, getAuthState, signInWithEmail, signInWithOAuthProvider, signUpWithEmail } from '@/src/lib/auth';
 
 export default function AuthRoute() {
@@ -107,6 +108,14 @@ export default function AuthRoute() {
       style={styles.wrapper}
     >
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+        <TouchableOpacity
+          accessibilityLabel="Close auth screen"
+          style={[styles.closeButton, isSubmitting || isGoogleSubmitting ? styles.disabled : undefined]}
+          onPress={() => router.replace('/')}
+          disabled={isSubmitting || isGoogleSubmitting}
+        >
+          <X color="#e2e8f0" size={20} />
+        </TouchableOpacity>
         <Text style={styles.title}>{mode === 'signIn' ? 'Welcome back' : 'Create account'}</Text>
         <Text style={styles.subtitle}>
           {isAuthAvailable ? 'Sign in to sync your feed across devices.' : 'This local build is running with seeded demo data.'}
@@ -201,6 +210,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: 'center',
     padding: 16,
+    position: 'relative',
   },
   centered: {
     alignItems: 'center',
@@ -217,6 +227,19 @@ const styles = StyleSheet.create({
   subtitle: {
     color: '#94a3b8',
     marginBottom: 24,
+  },
+  closeButton: {
+    alignItems: 'center',
+    backgroundColor: '#0f172a',
+    borderColor: '#334155',
+    borderRadius: 8,
+    borderWidth: 1,
+    height: 44,
+    justifyContent: 'center',
+    position: 'absolute',
+    right: 16,
+    top: 48,
+    width: 44,
   },
   notice: {
     backgroundColor: '#111b34',
