@@ -28,6 +28,7 @@ const normalizeScannedCode = (value: string) => value.replace(/[^0-9A-Za-z]/g, '
 export default function Checkin() {
   const router = useRouter();
   const beerEditVersion = useRef(0);
+  const scanLookupInFlight = useRef(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [beerName, setBeerName] = useState('');
   const [breweryName, setBreweryName] = useState('');
@@ -98,7 +99,7 @@ export default function Checkin() {
   };
 
   const applyScannedBarcode = async (result: BarcodeScanningResult) => {
-    if (isResolvingBarcode) {
+    if (isResolvingBarcode || scanLookupInFlight.current) {
       return;
     }
 
@@ -107,11 +108,13 @@ export default function Checkin() {
       return;
     }
 
+    scanLookupInFlight.current = true;
     setScannedBarcode(barcode);
     setScannedBarcodeMatchedBeer(false);
     setIsScannerOpen(false);
     setIsResolvingBarcode(true);
     const lookupEditVersion = beerEditVersion.current;
+    const shouldClearPriorMatchedBeer = scannedBarcodeMatchedBeer;
 
     try {
       const matchedBeer = await lookupBeerByBarcode(barcode);
@@ -126,10 +129,20 @@ export default function Checkin() {
         if (matchedBeer.brewery?.name) {
           setBreweryName(matchedBeer.brewery.name);
         }
+      } else if (shouldClearPriorMatchedBeer) {
+        setBeerName('');
+        setBreweryName('');
+        setStyle('ipa');
       }
     } catch {
       // A failed lookup should not block saving a new beer with the scanned code.
+      if (beerEditVersion.current === lookupEditVersion && shouldClearPriorMatchedBeer) {
+        setBeerName('');
+        setBreweryName('');
+        setStyle('ipa');
+      }
     } finally {
+      scanLookupInFlight.current = false;
       setIsResolvingBarcode(false);
     }
   };
