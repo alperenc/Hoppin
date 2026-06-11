@@ -27,7 +27,7 @@
      - city-stamp map data ✅
    - Add migration constraints/indexes for city uniqueness, check-in shape, and follower visibility. ✅
    - Enforce auth for profiles and follows. ✅
-   - Next: finalize app auth session flow after schema stabilization.
+   - Finalize app auth session flow after schema stabilization. ✅
 
 2. **Location + beer enrichment**
    - Add optional Google Places/Maps autocomplete + geocoding for check-in location.
