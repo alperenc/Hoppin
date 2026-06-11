@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import * as Location from 'expo-location';
-import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, Alert, View, Platform } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, Alert, View, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Beer, MapPin, Sparkles, Star, UsersRound } from 'lucide-react-native';
 import { BeerStyle, LocationHint, PrivacyLevel } from '@/src/types/hoppin';
 import { createCheckin, listVenueOrCityHints } from '@/src/lib/hoppin';
+import { resolveProtectedRoute, shouldRouteErrorToAuth } from '@/src/lib/sessionRouting';
 
 const styleChoices: BeerStyle[] = ['ipa', 'pilsner', 'lager', 'porter', 'stout', 'wheat', 'amber', 'sour', 'experimental', 'other'];
 const audienceOptions: Array<{ value: PrivacyLevel; label: string; caption: string }> = [
@@ -36,6 +37,9 @@ export default function Checkin() {
   const [isLoadingHints, setIsLoadingHints] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
+  const [isRouteReady, setIsRouteReady] = useState(false);
+  const [routeError, setRouteError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   const clearSavedCoordinates = () => {
     setLatitude('');
@@ -43,6 +47,45 @@ export default function Checkin() {
   };
 
   useEffect(() => {
+    let mounted = true;
+
+    const resolve = async () => {
+      setRouteError(false);
+      try {
+        const route = await resolveProtectedRoute();
+        if (!mounted) return;
+
+        if (route.status === 'redirect') {
+          router.replace(route.destination);
+          return;
+        }
+
+        setIsRouteReady(true);
+      } catch {
+        const shouldUseAuth = await shouldRouteErrorToAuth();
+        if (!mounted) return;
+
+        if (shouldUseAuth) {
+          router.replace('/auth');
+          return;
+        }
+
+        setRouteError(true);
+      }
+    };
+
+    void resolve();
+
+    return () => {
+      mounted = false;
+    };
+  }, [attempt, router]);
+
+  useEffect(() => {
+    if (!isRouteReady) {
+      return;
+    }
+
     const query = `${venueName} ${city} ${country}`.trim();
     if (query.length < 2) {
       setLocationHints([]);
@@ -64,7 +107,7 @@ export default function Checkin() {
     return () => {
       clearTimeout(handle);
     };
-  }, [city, country, venueName]);
+  }, [city, country, isRouteReady, venueName]);
 
   const applyHint = (hint: LocationHint) => {
     if (hint.venueName) {
@@ -258,6 +301,33 @@ export default function Checkin() {
   const trimmedVenueName = venueName.trim();
   const placePreview = city.trim() && country.trim() ? `${city.trim()}, ${country.trim()}` : 'Somewhere worth mapping';
   const audienceLabel = audienceOptions.find((option) => option.value === privacy)?.label ?? 'Crew';
+
+  if (routeError) {
+    return (
+      <View style={styles.loadingWrap}>
+        <Text style={styles.errorTitle}>Could not load check-in</Text>
+        <Text style={styles.errorText}>Your session is active, but Hoppin could not load the profile state.</Text>
+        <TouchableOpacity
+          style={styles.retryButton}
+          onPress={() => {
+            setIsRouteReady(false);
+            setRouteError(false);
+            setAttempt((current) => current + 1);
+          }}
+        >
+          <Text style={styles.retryText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (!isRouteReady) {
+    return (
+      <View style={styles.loadingWrap}>
+        <ActivityIndicator size="large" color="#60a5fa" />
+      </View>
+    );
+  }
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -459,6 +529,36 @@ const styles = StyleSheet.create({
   hero: {
     marginBottom: 18,
     gap: 10,
+  },
+  loadingWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#071022',
+    padding: 16,
+  },
+  errorTitle: {
+    color: '#f8fafc',
+    fontSize: 20,
+    fontWeight: '800',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  errorText: {
+    color: '#94a3b8',
+    lineHeight: 20,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  retryButton: {
+    backgroundColor: '#0ea5e9',
+    borderRadius: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+  },
+  retryText: {
+    color: '#f8fafc',
+    fontWeight: '800',
   },
   kickerRow: {
     alignSelf: 'flex-start',

@@ -14,7 +14,8 @@ import {
   setProfileCreatorRole,
 } from '@/src/lib/hoppin';
 import type { CityVisit, PassportSummary, Profile } from '@/src/types/hoppin';
-import { markOnboardingComplete, hasCompletedOnboarding } from '@/src/lib/onboarding';
+import { markOnboardingComplete } from '@/src/lib/onboarding';
+import { resolveAppDestination, shouldRouteErrorToAuth } from '@/src/lib/sessionRouting';
 
 const roleOptions = [
   {
@@ -42,6 +43,8 @@ export default function Onboarding() {
   const [isLoading, setIsLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isCreator, setIsCreator] = useState(false);
+  const [routeError, setRouteError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   const load = async (currentProfile?: Profile) => {
     const current = currentProfile ?? await getCurrentProfile();
@@ -78,34 +81,55 @@ export default function Onboarding() {
   useEffect(() => {
     let mounted = true;
     const initialize = async () => {
+      setRouteError(false);
+      setIsLoading(true);
       try {
-        const current = await getCurrentProfile();
-        const hasProfileOnboarded = await hasCompletedOnboarding(current.id);
+        const destination = await resolveAppDestination();
         if (!mounted) return;
 
-        if (hasProfileOnboarded) {
-          router.replace('/home');
+        if (destination !== '/onboarding') {
+          router.replace(destination);
           return;
         }
 
-        await load(current);
+        await load();
       } catch {
-        if (mounted) {
-          setIsLoading(false);
+        const shouldUseAuth = await shouldRouteErrorToAuth();
+        if (!mounted) return;
+
+        if (shouldUseAuth) {
+          router.replace('/auth');
+          return;
         }
+
+        setRouteError(true);
+        setIsLoading(false);
       }
     };
 
-    initialize().catch(() => {
-      if (mounted) {
-        setIsLoading(false);
+    initialize().catch(async () => {
+      const shouldUseAuth = await shouldRouteErrorToAuth();
+      if (!mounted) return;
+
+      if (shouldUseAuth) {
+        router.replace('/auth');
+        return;
       }
+
+      setRouteError(true);
+      setIsLoading(false);
     });
 
     return () => {
       mounted = false;
     };
-  }, [router]);
+  }, [attempt, router]);
+
+  const retryRouteLoad = () => {
+    setRouteError(false);
+    setIsLoading(true);
+    setAttempt((current) => current + 1);
+  };
 
   const isFollowing = (id: string) => followedIds.includes(id);
 
@@ -163,6 +187,18 @@ export default function Onboarding() {
     { label: `${summary?.checkinsCount ?? 0} beer ${summary?.checkinsCount === 1 ? 'check-in' : 'check-ins'}`, Icon: Beer, color: '#f59e0b' },
     { label: `${followedIds.length} ${followedIds.length === 1 ? 'person' : 'people'} followed`, Icon: UsersRound, color: '#38bdf8' },
   ];
+
+  if (routeError) {
+    return (
+      <View style={styles.loadingWrap}>
+        <Text style={styles.errorTitle}>Could not load onboarding</Text>
+        <Text style={styles.errorText}>Your session is active, but Hoppin could not load your starting state.</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={retryRouteLoad}>
+          <Text style={styles.retryText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -308,6 +344,30 @@ const styles = StyleSheet.create({
     backgroundColor: '#071022',
     alignItems: 'center',
     justifyContent: 'center',
+    padding: 16,
+  },
+  errorTitle: {
+    color: '#f8fafc',
+    fontSize: 20,
+    fontWeight: '800',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  errorText: {
+    color: '#94a3b8',
+    lineHeight: 20,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  retryButton: {
+    backgroundColor: '#0ea5e9',
+    borderRadius: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+  },
+  retryText: {
+    color: '#f8fafc',
+    fontWeight: '800',
   },
   hero: {
     gap: 16,

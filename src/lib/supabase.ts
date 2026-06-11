@@ -2,15 +2,8 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
-type RawEnv = {
-  EXPO_PUBLIC_SUPABASE_URL?: string;
-  EXPO_PUBLIC_SUPABASE_ANON_KEY?: string;
-};
-
-const env = process.env as RawEnv;
-
-const supabaseUrl = env.EXPO_PUBLIC_SUPABASE_URL?.trim() ?? '';
-const supabaseAnonKey = env.EXPO_PUBLIC_SUPABASE_ANON_KEY?.trim() ?? '';
+const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL?.trim() ?? '';
+const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY?.trim() ?? '';
 
 const isDefaultValue = (value: string) =>
   ['https://your-project.supabase.co', 'your-anon-key'].includes(value) || value.trim() === '';
