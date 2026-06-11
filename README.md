@@ -43,6 +43,8 @@ Add Hoppin app redirects to the Supabase Auth redirect allow list:
 - `http://localhost:8081/auth`
 - `hoppin://auth`
 
+On web, Hoppin sends OAuth users back to the current browser origin plus `/auth`, so each deployed production or preview domain that supports sign-in needs its exact `/auth` URL in this allow list.
+
 ## Data model snapshot
 
 - Follow-first social graph: `public.follows`
