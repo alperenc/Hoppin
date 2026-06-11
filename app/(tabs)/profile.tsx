@@ -216,7 +216,7 @@ export default function Profile() {
             onPress={async () => {
               try {
                 await signOutUser();
-                router.replace('/auth');
+                router.replace('/');
               } catch {
                 Alert.alert('Sign out failed', 'Please try again.');
               }

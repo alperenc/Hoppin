@@ -11,9 +11,9 @@ export default function RootLayout() {
       return;
     }
 
-    const subscription = onAuthStateChange((_event, state) => {
-      if (!state.session) {
-        router.replace('/auth');
+    const subscription = onAuthStateChange((event, state) => {
+      if (event === 'SIGNED_OUT' && !state.session) {
+        router.replace('/');
       }
     });
 
