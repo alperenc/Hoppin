@@ -17,6 +17,7 @@
 - Location enrichment in check-in:
   - `app/checkin.tsx` now suggests venues/cities from `listVenueOrCityHints()`.
   - `app/checkin.tsx` can also prefill latitude/longitude and attempt reverse-geocoded city/country from device location.
+  - Deployed web can merge saved Hoppin places with Google Places suggestions through `/api/places` when `GOOGLE_PLACES_API_KEY` is configured.
 
 ## Near-term implementation plan (2 weeks)
 1. **Backend integration (critical)**
@@ -30,8 +31,8 @@
    - Finalize app auth session flow after schema stabilization. ✅
 
 2. **Location + beer enrichment**
-   - Add optional Google Places/Maps autocomplete + geocoding for check-in location.
-   - Persist coordinates, country, city and normalized venue references.
+   - Add optional Google Places/Maps autocomplete + geocoding for check-in location. ✅
+   - Persist coordinates, country, city and normalized venue references. ✅
    - Add barcode/label scan (optional) to support beer lookup and dedupe.
 
 3. **Social surface hardening**

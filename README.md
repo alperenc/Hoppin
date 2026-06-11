@@ -12,20 +12,22 @@ The app now includes an influencer-first social model with creator discovery and
 - Passport tab now includes a native map of city stamps (web fallback list view).
 - Check-in composer persists a new record and returns to feed.
 - Auth routing: unauthenticated sessions in Supabase builds are sent to `/auth` for email sign-in/signup, and signed users land in tabs.
-- Check-in now includes lightweight venue/city suggestions from local seed data + Supabase hint search.
+- Check-in now includes venue/city suggestions from local seed data, Supabase hint search, and optional Google Places enrichment through the deployed `/api/places` proxy.
 
 Implementation plan for full production rollout is tracked in [/docs/PLAN.md](/docs/PLAN.md).
 
 ### Stack
 - Expo + Expo Router
 - Supabase (Postgres schema in `supabase/migrations/0001_hoppin_core.sql`)
-- Google Maps/Places (future integration in check-in location fields)
+- Google Maps/Places for optional check-in location enrichment
 
 ## Running
 
 1. Install dependencies: `npm install`
 2. Set values in `.env.local` from `.env.example`
 3. Start app: `npx expo start`
+
+For deployed web, configure `GOOGLE_PLACES_API_KEY` in Vercel to enable live Google Places suggestions. The Expo client reads suggestions from the same-origin `/api/places` proxy so the Places key does not need to be exposed in the web bundle.
 
 ## Data model snapshot
 
