@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
-import { isAuthAvailable, getAuthState, signInWithEmail, signUpWithEmail } from '@/src/lib/auth';
+import { isAuthAvailable, getAuthState, signInWithEmail, signInWithOAuthProvider, signUpWithEmail } from '@/src/lib/auth';
 
 export default function AuthRoute() {
   const router = useRouter();
@@ -11,6 +11,7 @@ export default function AuthRoute() {
   const [status, setStatus] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -74,6 +75,24 @@ export default function AuthRoute() {
     }
   };
 
+  const continueWithGoogle = async () => {
+    setStatus('');
+    setIsGoogleSubmitting(true);
+    try {
+      const auth = await signInWithOAuthProvider('google');
+      if (auth.session) {
+        router.replace('/');
+        return;
+      }
+      setStatus('Google sign-in was cancelled.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Google sign-in failed.';
+      setStatus(message);
+    } finally {
+      setIsGoogleSubmitting(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <View style={styles.centered}>
@@ -102,6 +121,25 @@ export default function AuthRoute() {
           </View>
         ) : null}
 
+        <TouchableOpacity
+          style={[styles.googleButton, !isAuthAvailable || isGoogleSubmitting || isSubmitting ? styles.disabled : undefined]}
+          onPress={continueWithGoogle}
+          disabled={!isAuthAvailable || isGoogleSubmitting || isSubmitting}
+        >
+          <View style={styles.googleMark}>
+            <Text style={styles.googleMarkText}>G</Text>
+          </View>
+          <Text style={styles.googleButtonText}>
+            {isGoogleSubmitting ? 'Opening Google...' : 'Continue with Google'}
+          </Text>
+        </TouchableOpacity>
+
+        <View style={styles.dividerRow}>
+          <View style={styles.dividerLine} />
+          <Text style={styles.dividerText}>or use email</Text>
+          <View style={styles.dividerLine} />
+        </View>
+
         <TextInput
           autoCapitalize="none"
           autoComplete="email"
@@ -126,7 +164,7 @@ export default function AuthRoute() {
 
         {!!status ? <Text style={styles.status}>{status}</Text> : null}
 
-        <TouchableOpacity style={[styles.primary, !isAuthAvailable || isSubmitting ? styles.disabled : undefined]} onPress={submit} disabled={!isAuthAvailable || isSubmitting}>
+        <TouchableOpacity style={[styles.primary, !isAuthAvailable || isSubmitting || isGoogleSubmitting ? styles.disabled : undefined]} onPress={submit} disabled={!isAuthAvailable || isSubmitting || isGoogleSubmitting}>
           <Text style={styles.primaryText}>
             {isSubmitting ? 'Working...' : mode === 'signIn' ? 'Sign in' : 'Sign up'}
           </Text>
@@ -196,6 +234,55 @@ const styles = StyleSheet.create({
   noticeText: {
     color: '#cbd5e1',
     lineHeight: 20,
+  },
+  googleButton: {
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+    borderColor: '#e5e7eb',
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 10,
+    justifyContent: 'center',
+    marginBottom: 16,
+    minHeight: 48,
+    paddingHorizontal: 12,
+  },
+  googleMark: {
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderColor: '#d1d5db',
+    borderRadius: 8,
+    borderWidth: 1,
+    height: 28,
+    justifyContent: 'center',
+    width: 28,
+  },
+  googleMarkText: {
+    color: '#2563eb',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  googleButtonText: {
+    color: '#111827',
+    fontWeight: '800',
+  },
+  dividerRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 16,
+  },
+  dividerLine: {
+    backgroundColor: '#1f2937',
+    flex: 1,
+    height: 1,
+  },
+  dividerText: {
+    color: '#94a3b8',
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
   },
   input: {
     backgroundColor: '#0f172a',
