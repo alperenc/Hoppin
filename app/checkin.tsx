@@ -19,6 +19,9 @@ const formatStyle = (style: BeerStyle) => {
   return style.slice(0, 1).toUpperCase() + style.slice(1);
 };
 
+const samePlaceText = (left: string | undefined, right: string) =>
+  left?.trim().toLowerCase() === right.trim().toLowerCase();
+
 export default function Checkin() {
   const router = useRouter();
   const [beerName, setBeerName] = useState('');
@@ -40,10 +43,17 @@ export default function Checkin() {
   const [isRouteReady, setIsRouteReady] = useState(false);
   const [routeError, setRouteError] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const [selectedVenueProvider, setSelectedVenueProvider] = useState<LocationHint['provider']>();
+  const [selectedVenueExternalId, setSelectedVenueExternalId] = useState<string>();
 
   const clearSavedCoordinates = () => {
     setLatitude('');
     setLongitude('');
+  };
+
+  const clearSelectedVenueReference = () => {
+    setSelectedVenueProvider(undefined);
+    setSelectedVenueExternalId(undefined);
   };
 
   useEffect(() => {
@@ -112,8 +122,11 @@ export default function Checkin() {
   const applyHint = (hint: LocationHint) => {
     if (hint.venueName) {
       setVenueName(hint.venueName);
+      setSelectedVenueProvider(hint.provider);
+      setSelectedVenueExternalId(hint.externalId);
     } else {
       setVenueName('');
+      clearSelectedVenueReference();
     }
     if (hint.city) {
       setCity(hint.city);
@@ -231,10 +244,38 @@ export default function Checkin() {
           parsedCityLongitude = undefined;
         }
       }
+
+      if (hasVenue && (parsedCityLatitude === undefined || parsedCityLongitude === undefined)) {
+        try {
+          const cityHints = await listVenueOrCityHints(`${normalizedCity}, ${normalizedCountry}`);
+          const cityHint = cityHints.find(
+            (hint) =>
+              !hint.venueName &&
+              samePlaceText(hint.city, normalizedCity) &&
+              samePlaceText(hint.country, normalizedCountry) &&
+              hint.lat !== undefined &&
+              hint.lng !== undefined
+          );
+
+          if (cityHint?.lat !== undefined && cityHint.lng !== undefined) {
+            parsedCityLatitude = cityHint.lat;
+            parsedCityLongitude = cityHint.lng;
+          }
+        } catch {
+          parsedCityLatitude = undefined;
+          parsedCityLongitude = undefined;
+        }
+      }
     }
 
     if (parsedLatitude === undefined || parsedLongitude === undefined) {
       Alert.alert('Map this place first', 'Use your current city or choose a place hint so this stamp lands on the passport map.');
+      setIsSaving(false);
+      return;
+    }
+
+    if (hasVenue && (parsedCityLatitude === undefined || parsedCityLongitude === undefined)) {
+      Alert.alert('Map this city first', 'Choose a city hint or use current city so this venue rolls up to the right passport stamp.');
       setIsSaving(false);
       return;
     }
@@ -255,6 +296,8 @@ export default function Checkin() {
         venueName: hasVenue ? normalizedVenue : undefined,
         city: normalizedCity,
         country: normalizedCountry,
+        venueProvider: hasVenue ? selectedVenueProvider : undefined,
+        venueExternalId: hasVenue ? selectedVenueExternalId : undefined,
       });
       router.replace('/home');
     } catch (error) {
@@ -386,6 +429,7 @@ export default function Checkin() {
           onChangeText={(value) => {
             setVenueName(value);
             clearSavedCoordinates();
+            clearSelectedVenueReference();
           }}
         />
         <View style={styles.inlineFields}>
@@ -397,6 +441,7 @@ export default function Checkin() {
             onChangeText={(value) => {
               setCity(value);
               clearSavedCoordinates();
+              clearSelectedVenueReference();
             }}
           />
           <TextInput
@@ -407,6 +452,7 @@ export default function Checkin() {
             onChangeText={(value) => {
               setCountry(value);
               clearSavedCoordinates();
+              clearSelectedVenueReference();
             }}
           />
         </View>
@@ -415,11 +461,12 @@ export default function Checkin() {
             {isLoadingHints ? <Text style={styles.hintLoading}>Finding matching places...</Text> : null}
             {!isLoadingHints &&
               locationHints.map((hint) => {
-                const key = `${hint.venueName ?? ''}-${hint.city ?? ''}-${hint.country ?? ''}`;
+                const key = `${hint.provider ?? 'user'}-${hint.externalId ?? ''}-${hint.venueName ?? ''}-${hint.city ?? ''}-${hint.country ?? ''}`;
                 const label = hint.venueName ? `${hint.venueName} - ${hint.city}, ${hint.country}` : `${hint.city}, ${hint.country}`;
                 return (
                   <TouchableOpacity key={key} style={styles.hintItem} onPress={() => applyHint(hint)}>
                     <Text style={styles.hintItemText}>{label}</Text>
+                    {hint.provider === 'google' ? <Text style={styles.hintSource}>Google Places</Text> : null}
                   </TouchableOpacity>
                 );
               })}
@@ -836,5 +883,12 @@ const styles = StyleSheet.create({
   },
   hintItemText: {
     color: '#cbd5e1',
+    fontWeight: '700',
+  },
+  hintSource: {
+    color: '#38bdf8',
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: 4,
   },
 });

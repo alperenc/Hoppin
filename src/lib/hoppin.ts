@@ -35,6 +35,8 @@ type CreateCheckinInput = {
   lng: number;
   cityLat?: number;
   cityLng?: number;
+  venueProvider?: Venue['provider'];
+  venueExternalId?: string;
 };
 
 type DbProfile = {
@@ -63,6 +65,8 @@ type DbVenue = {
   id: string;
   name: string;
   country: string | null;
+  place_provider?: Venue['provider'] | null;
+  provider_place_id?: string | null;
   latitude: number | string;
   longitude: number | string;
   city_id: string | null;
@@ -120,6 +124,8 @@ type DbProfileCheckinVenue = {
   id: string;
   name: string;
   country: string | null;
+  place_provider?: Venue['provider'] | null;
+  provider_place_id?: string | null;
   latitude: number | string;
   longitude: number | string;
   city_id: string | null;
@@ -540,7 +546,8 @@ function mapDbProfileCheckin(row: DbProfileCheckinRow, venueCityById: Map<string
             name: venues?.name ?? 'Unknown venue',
             city: venueCity?.city ?? 'Unknown',
             country: venues?.country ?? venueCity?.country ?? 'Unknown',
-            provider: 'user',
+            provider: venues?.place_provider ?? 'user',
+            externalId: venues?.provider_place_id ?? undefined,
             lat: toNumber(venues?.latitude) ?? 0,
             lng: toNumber(venues?.longitude) ?? 0,
           }
@@ -901,17 +908,28 @@ async function findOrCreateBeer(name: string, style: BeerStyle, authorId: Id, br
   return inserted as DbBeer;
 }
 
-async function findOrCreateVenue(name: string, locationCity: DbCity, lat: number, lng: number): Promise<DbVenue> {
+async function findOrCreateVenue(
+  name: string,
+  locationCity: DbCity,
+  lat: number,
+  lng: number,
+  provider: Venue['provider'] = 'user',
+  externalId?: string
+): Promise<DbVenue> {
   const normalizedName = normalizeText(name);
   if (!useSupabase()) {
     const existing = venues.find(
-      (v) => v.name.toLowerCase() === normalizedName.toLowerCase() && v.city.toLowerCase() === locationCity.city.toLowerCase()
+      (v) =>
+        (externalId && v.provider === provider && v.externalId === externalId) ||
+        (v.name.toLowerCase() === normalizedName.toLowerCase() && v.city.toLowerCase() === locationCity.city.toLowerCase())
     );
     if (existing) {
       return {
         id: existing.id,
         name: existing.name,
         country: existing.country,
+        place_provider: existing.provider,
+        provider_place_id: existing.externalId,
         latitude: existing.lat,
         longitude: existing.lng,
         city_id: `seed_${locationCity.city}`,
@@ -926,7 +944,8 @@ async function findOrCreateVenue(name: string, locationCity: DbCity, lat: number
       name: normalizedName,
       city: locationCity.city,
       country: locationCity.country,
-      provider: 'user',
+      provider,
+      externalId,
       lat,
       lng,
     };
@@ -935,15 +954,31 @@ async function findOrCreateVenue(name: string, locationCity: DbCity, lat: number
       id: next.id,
       name: next.name,
       country: next.country,
+      place_provider: next.provider,
+      provider_place_id: next.externalId,
       latitude: next.lat,
       longitude: next.lng,
       city_id: `seed_${locationCity.city}`,
     };
   }
 
+  if (externalId) {
+    const { data: providerRows, error: providerError } = await supabase
+      .from('venues')
+      .select('id,name,country,place_provider,provider_place_id,latitude,longitude,city_id')
+      .eq('place_provider', provider)
+      .eq('provider_place_id', externalId)
+      .limit(1);
+    if (providerError) throw new Error(providerError.message);
+
+    if (providerRows?.[0]) {
+      return providerRows[0] as DbVenue;
+    }
+  }
+
   const { data, error } = await supabase
     .from('venues')
-    .select('id,name,country,latitude,longitude,city_id')
+    .select('id,name,country,place_provider,provider_place_id,latitude,longitude,city_id')
     .eq('city_id', locationCity.id)
     .ilike('name', normalizedName)
     .limit(1);
@@ -959,12 +994,28 @@ async function findOrCreateVenue(name: string, locationCity: DbCity, lat: number
       name: normalizedName,
       city_id: locationCity.id,
       country: locationCity.country,
+      place_provider: provider,
+      provider_place_id: externalId ?? null,
       latitude: lat,
       longitude: lng,
     })
-    .select('id,name,country,latitude,longitude,city_id')
+    .select('id,name,country,place_provider,provider_place_id,latitude,longitude,city_id')
     .single();
-  if (insertError) throw new Error(insertError.message);
+  if (insertError) {
+    if (externalId) {
+      const { data: retryRows, error: retryError } = await supabase
+        .from('venues')
+        .select('id,name,country,place_provider,provider_place_id,latitude,longitude,city_id')
+        .eq('place_provider', provider)
+        .eq('provider_place_id', externalId)
+        .limit(1);
+      if (!retryError && retryRows?.[0]) {
+        return retryRows[0] as DbVenue;
+      }
+    }
+
+    throw new Error(insertError.message);
+  }
   return inserted as DbVenue;
 }
 
@@ -1229,7 +1280,7 @@ export async function listPublicProfileCheckins(profileId: Id): Promise<Checkin[
       note,
       photo_urls,
       cities(city,country,latitude,longitude),
-      venues(id,name,country,latitude,longitude,city_id),
+      venues(id,name,country,place_provider,provider_place_id,latitude,longitude,city_id),
       beers(id,name,style,abv,ibu,created_by,created_at,brewery_id)
       `
     )
@@ -1567,7 +1618,7 @@ export async function createCheckin(input: CreateCheckinInput, authorId?: Id): P
       media: [],
       ...(input.scope === 'venue'
         ? {
-            venue: upsertVenue(input.venueName!.trim(), city, input.lat, input.lng),
+            venue: upsertVenue(input.venueName!.trim(), city, input.lat, input.lng, input.venueProvider ?? 'user', input.venueExternalId),
           }
         : { city }),
     };
@@ -1578,7 +1629,7 @@ export async function createCheckin(input: CreateCheckinInput, authorId?: Id): P
   const city = await findOrCreateCity(normalizedCity, normalizedCountry, cityLat, cityLng);
   const beer = await findOrCreateBeer(normalizedBeer, input.style, resolvedAuthorId, input.breweryName?.trim());
   const venue = input.scope === 'venue' && input.venueName
-    ? await findOrCreateVenue(input.venueName.trim(), city, input.lat, input.lng)
+    ? await findOrCreateVenue(input.venueName.trim(), city, input.lat, input.lng, input.venueProvider ?? 'user', input.venueExternalId)
     : null;
 
   const payload = {
@@ -1637,7 +1688,8 @@ export async function createCheckin(input: CreateCheckinInput, authorId?: Id): P
             name: venue.name,
             city: venue.city?.city ?? city.city,
             country: venue.country ?? city.country,
-            provider: 'user',
+            provider: venue.place_provider ?? input.venueProvider ?? 'user',
+            externalId: venue.provider_place_id ?? input.venueExternalId,
             lat: toNumber(venue.latitude) ?? input.lat,
             lng: toNumber(venue.longitude) ?? input.lng,
           }
@@ -1650,7 +1702,64 @@ export async function createCheckin(input: CreateCheckinInput, authorId?: Id): P
   };
 }
 
-export async function listVenueOrCityHints(query: string): Promise<LocationHint[]> {
+const locationHintKey = (hint: LocationHint) =>
+  `${hint.provider ?? 'user'}:${hint.externalId ?? ''}:${hint.venueName ?? ''}:${hint.city ?? ''}:${hint.country ?? ''}`.toLowerCase();
+
+const mergeLocationHints = (...hintGroups: LocationHint[][]) => {
+  const seen = new Set<string>();
+  const merged: LocationHint[] = [];
+
+  for (const hints of hintGroups) {
+    for (const hint of hints) {
+      const key = locationHintKey(hint);
+      if (!seen.has(key)) {
+        seen.add(key);
+        merged.push(hint);
+      }
+    }
+  }
+
+  return merged.slice(0, 10);
+};
+
+async function fetchGoogleLocationHints(query: string): Promise<LocationHint[]> {
+  if (typeof fetch !== 'function') {
+    return [];
+  }
+
+  if (!isSupabaseConfigured) {
+    return [];
+  }
+
+  const { data } = await supabase.auth.getSession();
+  const accessToken = data.session?.access_token;
+  if (!accessToken) {
+    return [];
+  }
+
+  const proxyBase = process.env.EXPO_PUBLIC_HOPPIN_PLACES_PROXY_URL?.trim();
+  const endpoint = `${proxyBase ? proxyBase.replace(/\/$/, '') : ''}/api/places?query=${encodeURIComponent(query)}`;
+
+  try {
+    const response = await fetch(endpoint, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+    if (!response.ok) {
+      return [];
+    }
+
+    const payload = (await response.json()) as { hints?: LocationHint[] };
+    return (payload.hints ?? [])
+      .filter((hint) => hint.city && hint.country && hint.lat !== undefined && hint.lng !== undefined)
+      .slice(0, 5);
+  } catch {
+    return [];
+  }
+}
+
+async function listStoredVenueOrCityHints(query: string): Promise<LocationHint[]> {
   const q = query.trim();
   if (!q) return [];
 
@@ -1659,7 +1768,15 @@ export async function listVenueOrCityHints(query: string): Promise<LocationHint[
     const results: LocationHint[] = [];
     for (const venue of venues) {
       if (venue.name.toLowerCase().includes(qLower)) {
-        results.push({ venueName: venue.name, city: venue.city, country: venue.country, lat: venue.lat, lng: venue.lng });
+        results.push({
+          venueName: venue.name,
+          city: venue.city,
+          country: venue.country,
+          lat: venue.lat,
+          lng: venue.lng,
+          provider: venue.provider,
+          externalId: venue.externalId,
+        });
       }
     }
     for (const city of cities) {
@@ -1670,7 +1787,7 @@ export async function listVenueOrCityHints(query: string): Promise<LocationHint[
           (r) => r.city?.toLowerCase() === city.city.toLowerCase() && r.country?.toLowerCase() === city.country.toLowerCase()
         )
       ) {
-        results.push({ city: city.city, country: city.country, lat: city.lat, lng: city.lng });
+        results.push({ city: city.city, country: city.country, lat: city.lat, lng: city.lng, provider: 'user' });
       }
     }
 
@@ -1686,7 +1803,7 @@ export async function listVenueOrCityHints(query: string): Promise<LocationHint[
       .limit(8),
     supabase
       .from('venues')
-      .select('name,country,latitude,longitude,city_id,city:city_id(city,country)')
+      .select('name,country,place_provider,provider_place_id,latitude,longitude,city_id,city:city_id(city,country)')
       .ilike('name', like)
       .limit(8),
   ]);
@@ -1700,6 +1817,8 @@ export async function listVenueOrCityHints(query: string): Promise<LocationHint[
   for (const venue of ((venueRows.data as unknown as {
     name: string;
     country?: string | null;
+    place_provider?: Venue['provider'] | null;
+    provider_place_id?: string | null;
     latitude?: number | string | null;
     longitude?: number | string | null;
     city?: { city: string; country: string | null } | { city: string; country: string | null }[];
@@ -1711,6 +1830,8 @@ export async function listVenueOrCityHints(query: string): Promise<LocationHint[
       country: cityRow?.country ?? venue.country ?? undefined,
       lat: toNumber(venue.latitude),
       lng: toNumber(venue.longitude),
+      provider: venue.place_provider ?? 'user',
+      externalId: venue.provider_place_id ?? undefined,
     };
     const key = JSON.stringify(item);
     if (!seen.has(key)) {
@@ -1720,7 +1841,7 @@ export async function listVenueOrCityHints(query: string): Promise<LocationHint[
   }
 
   for (const city of (cityRows.data as { city: string; country: string; latitude: number | string | null; longitude: number | string | null }[] | null) ?? []) {
-    const item = { city: city.city, country: city.country, lat: toNumber(city.latitude), lng: toNumber(city.longitude) };
+    const item = { city: city.city, country: city.country, lat: toNumber(city.latitude), lng: toNumber(city.longitude), provider: 'user' as const };
     const key = JSON.stringify(item);
     if (!seen.has(key)) {
       seen.add(key);
@@ -1729,6 +1850,18 @@ export async function listVenueOrCityHints(query: string): Promise<LocationHint[
   }
 
   return unique.slice(0, 10);
+}
+
+export async function listVenueOrCityHints(query: string): Promise<LocationHint[]> {
+  const q = query.trim();
+  if (!q) return [];
+
+  const [storedHints, googleHints] = await Promise.all([
+    listStoredVenueOrCityHints(q).catch(() => []),
+    fetchGoogleLocationHints(q),
+  ]);
+
+  return mergeLocationHints(storedHints, googleHints);
 }
 
 function upsertCity(city: string, country: string, lat?: number, lng?: number): CityLocation {
@@ -1744,8 +1877,19 @@ function upsertCity(city: string, country: string, lat?: number, lng?: number): 
   return next;
 }
 
-function upsertVenue(name: string, locationCity: CityLocation, lat = locationCity.lat, lng = locationCity.lng): Venue {
-  const existing = venues.find((v) => v.name.toLowerCase() === name.toLowerCase() && v.city.toLowerCase() === locationCity.city.toLowerCase());
+function upsertVenue(
+  name: string,
+  locationCity: CityLocation,
+  lat = locationCity.lat,
+  lng = locationCity.lng,
+  provider: Venue['provider'] = 'user',
+  externalId?: string
+): Venue {
+  const existing = venues.find(
+    (v) =>
+      (externalId && v.provider === provider && v.externalId === externalId) ||
+      (v.name.toLowerCase() === name.toLowerCase() && v.city.toLowerCase() === locationCity.city.toLowerCase())
+  );
   if (existing) return existing;
 
   const next: Venue = {
@@ -1753,7 +1897,8 @@ function upsertVenue(name: string, locationCity: CityLocation, lat = locationCit
     name,
     city: locationCity.city,
     country: locationCity.country,
-    provider: 'user',
+    provider,
+    externalId,
     lat,
     lng,
   };

@@ -74,6 +74,8 @@ export interface LocationHint {
   country?: string;
   lat?: number;
   lng?: number;
+  provider?: Venue['provider'];
+  externalId?: string;
 }
 
 export type CheckinScope = 'venue' | 'city';
