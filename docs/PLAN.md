@@ -10,10 +10,10 @@
 - Passport-stamp composer with inferred venue/city scope, live stamp preview, hidden coordinate capture, collapsed details, privacy, rating, and notes
   - Local Supabase schema scaffold in `supabase/migrations/0001_hoppin_core.sql`
 - Auth route and session gating:
-  - `app/index.tsx` routes to `/auth` when Supabase mode is configured but no session exists.
+  - `app/index.tsx` shows a guest passport start screen when Supabase mode is configured but no session exists.
   - `src/lib/auth.ts` centralizes auth helpers and sign-out/session-change subscriptions.
   - `app/auth.tsx` supports Google OAuth plus email sign-in/sign-up flow.
-  - `app/_layout.tsx` listens for auth session state changes and routes back to `/auth` on sign-out.
+  - `app/_layout.tsx` listens for auth session state changes and routes signed-out users back to the guest start screen.
   - Onboarding and profile screens let signed-in users claim and edit their display name and public handle.
 - Location enrichment in check-in:
   - `app/checkin.tsx` now suggests venues/cities from `listVenueOrCityHints()`.
