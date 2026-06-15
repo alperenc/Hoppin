@@ -1,11 +1,20 @@
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { X } from 'lucide-react-native';
 import { isAuthAvailable, getAuthState, signInWithEmail, signInWithOAuthProvider, signUpWithEmail } from '@/src/lib/auth';
 
+const allowedPostAuthRoutes = new Set(['/checkin', '/home', '/discover', '/profile', '/passport']);
+
+const normalizeReturnTo = (value: string | string[] | undefined) => {
+  const destination = Array.isArray(value) ? value[0] : value;
+  return destination && allowedPostAuthRoutes.has(destination) ? destination : '/';
+};
+
 export default function AuthRoute() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ returnTo?: string | string[] }>();
+  const postAuthDestination = normalizeReturnTo(params.returnTo);
   const [mode, setMode] = useState<'signIn' | 'signUp'>('signIn');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -22,7 +31,7 @@ export default function AuthRoute() {
         const auth = isAuthAvailable ? await getAuthState() : { user: null };
         if (!mounted) return;
         if (auth.user) {
-          router.replace('/');
+          router.replace(postAuthDestination);
           return;
         }
       } catch {
@@ -39,7 +48,7 @@ export default function AuthRoute() {
     return () => {
       mounted = false;
     };
-  }, [router]);
+  }, [postAuthDestination, router]);
 
   const submit = async () => {
     setStatus('');
@@ -55,14 +64,14 @@ export default function AuthRoute() {
       if (mode === 'signIn') {
         const result = await signInWithEmail(normalizedEmail, password);
         if (result.data.session) {
-          router.replace('/');
+          router.replace(postAuthDestination);
           return;
         }
         setStatus('Sign in failed. Check your credentials.');
       } else {
         const result = await signUpWithEmail(normalizedEmail, password);
         if (result.data.session) {
-          router.replace('/');
+          router.replace(postAuthDestination);
           return;
         }
         setStatus('Account created. Check your email to confirm your signup.');
@@ -82,7 +91,7 @@ export default function AuthRoute() {
     try {
       const auth = await signInWithOAuthProvider('google');
       if (auth.session) {
-        router.replace('/');
+        router.replace(postAuthDestination);
         return;
       }
       setStatus('Google sign-in was cancelled.');
