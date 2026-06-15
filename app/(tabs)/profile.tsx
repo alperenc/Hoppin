@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { View, StyleSheet, Text, TouchableOpacity, Alert, Share, TextInput, ScrollView, ActivityIndicator } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import { View, StyleSheet, Text, TouchableOpacity, Alert, Share, TextInput, ScrollView, ActivityIndicator, Image as RNImage } from 'react-native';
 import { useRouter } from 'expo-router';
+import { ImagePlus, X } from 'lucide-react-native';
 import { getCurrentProfile, getFollowCounts, getPassportSummary, setProfileCreatorRole, updateProfileIdentity } from '@/src/lib/hoppin';
 import { getAuthState, isAuthAvailable, signOut as signOutUser } from '@/src/lib/auth';
+import { uploadHoppinMediaUri } from '@/src/lib/media';
 import type { Profile as HoppinProfile } from '@/src/types/hoppin';
 
 export default function Profile() {
@@ -15,6 +18,7 @@ export default function Profile() {
   const [savingRole, setSavingRole] = useState(false);
   const [displayName, setDisplayName] = useState('');
   const [username, setUsername] = useState('');
+  const [avatarUrl, setAvatarUrl] = useState('');
   const [isEditingIdentity, setIsEditingIdentity] = useState(false);
   const [savingIdentity, setSavingIdentity] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -43,6 +47,7 @@ export default function Profile() {
       setCheckins(summary.checkinsCount);
       setDisplayName(current.displayName);
       setUsername(current.username);
+      setAvatarUrl(current.avatarUrl ?? '');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not load profile data right now.';
       setLoadError(message);
@@ -83,6 +88,10 @@ export default function Profile() {
 
   const saveIdentity = async () => {
     if (!me) return;
+    if (!canSaveIdentity) {
+      return;
+    }
+
     if (!displayName.trim() || !username.trim()) {
       Alert.alert('Profile incomplete', 'Add both a display name and handle.');
       return;
@@ -90,16 +99,39 @@ export default function Profile() {
 
     try {
       setSavingIdentity(true);
-      const next = await updateProfileIdentity(me.id, { displayName, username });
+      const uploadedAvatarUrl = avatarUrl.trim()
+        ? await uploadHoppinMediaUri({ ownerId: me.id, kind: 'avatars', uri: avatarUrl })
+        : null;
+      const next = await updateProfileIdentity(me.id, { displayName, username, avatarUrl: uploadedAvatarUrl });
       setMe(next);
       setDisplayName(next.displayName);
       setUsername(next.username);
+      setAvatarUrl(next.avatarUrl ?? '');
       setIsEditingIdentity(false);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not save your profile right now.';
       Alert.alert('Profile update failed', message);
     } finally {
       setSavingIdentity(false);
+    }
+  };
+
+  const pickAvatar = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Photos blocked', 'Enable photo access to choose a profile picture.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.82,
+    });
+
+    if (!result.canceled && result.assets[0]?.uri) {
+      setAvatarUrl(result.assets[0].uri);
     }
   };
 
@@ -148,11 +180,24 @@ export default function Profile() {
     );
   }
 
+  const normalizedDisplayName = displayName.trim();
+  const normalizedUsername = username.trim().replace(/^@+/, '').toLowerCase();
+  const normalizedAvatarUrl = avatarUrl.trim();
+  const hasIdentityChanges =
+    normalizedDisplayName !== me.displayName ||
+    normalizedUsername !== me.username.toLowerCase() ||
+    normalizedAvatarUrl !== (me.avatarUrl ?? '');
+  const canSaveIdentity = Boolean(normalizedDisplayName && normalizedUsername && hasIdentityChanges && !savingIdentity);
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
         <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{me.displayName.slice(0, 1).toUpperCase()}</Text>
+          {me.avatarUrl ? (
+            <RNImage source={{ uri: me.avatarUrl }} style={styles.avatarImage} />
+          ) : (
+            <Text style={styles.avatarText}>{me.displayName.slice(0, 1).toUpperCase()}</Text>
+          )}
         </View>
         <View style={styles.headerCopy}>
           <Text style={styles.title}>{me.displayName}</Text>
@@ -184,6 +229,7 @@ export default function Profile() {
               if (isEditingIdentity && me) {
                 setDisplayName(me.displayName);
                 setUsername(me.username);
+                setAvatarUrl(me.avatarUrl ?? '');
               }
               setIsEditingIdentity((current) => !current);
             }}
@@ -194,6 +240,27 @@ export default function Profile() {
         </View>
         {isEditingIdentity ? (
           <View style={styles.identityForm}>
+            <View style={styles.avatarEditRow}>
+              <View style={styles.avatarPreview}>
+                {avatarUrl ? (
+                  <RNImage source={{ uri: avatarUrl }} style={styles.avatarImage} />
+                ) : (
+                  <Text style={styles.avatarText}>{displayName.trim().slice(0, 1).toUpperCase() || 'H'}</Text>
+                )}
+              </View>
+              <View style={styles.avatarActions}>
+                <TouchableOpacity style={styles.avatarButton} onPress={pickAvatar} disabled={savingIdentity}>
+                  <ImagePlus color="#bae6fd" size={17} />
+                  <Text style={styles.avatarButtonText}>{avatarUrl ? 'Change photo' : 'Add photo'}</Text>
+                </TouchableOpacity>
+                {avatarUrl ? (
+                  <TouchableOpacity style={styles.avatarClearButton} onPress={() => setAvatarUrl('')} disabled={savingIdentity}>
+                    <X color="#cbd5e1" size={16} />
+                    <Text style={styles.avatarClearText}>Remove</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            </View>
             <TextInput
               autoCapitalize="words"
               editable={!savingIdentity}
@@ -215,7 +282,7 @@ export default function Profile() {
                 onChangeText={setUsername}
               />
             </View>
-            <TouchableOpacity style={[styles.cta, savingIdentity ? styles.disabled : undefined]} onPress={saveIdentity} disabled={savingIdentity}>
+            <TouchableOpacity style={[styles.cta, !canSaveIdentity ? styles.disabled : undefined]} onPress={saveIdentity} disabled={!canSaveIdentity}>
               <Text style={styles.ctaText}>{savingIdentity ? 'Saving…' : 'Save profile'}</Text>
             </TouchableOpacity>
           </View>
@@ -319,7 +386,12 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     height: 58,
     justifyContent: 'center',
+    overflow: 'hidden',
     width: 58,
+  },
+  avatarImage: {
+    height: '100%',
+    width: '100%',
   },
   avatarText: {
     color: '#111827',
@@ -398,6 +470,49 @@ const styles = StyleSheet.create({
   identityForm: {
     gap: 10,
     marginTop: 12,
+  },
+  avatarEditRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+  },
+  avatarPreview: {
+    alignItems: 'center',
+    backgroundColor: '#f59e0b',
+    borderRadius: 8,
+    height: 64,
+    justifyContent: 'center',
+    overflow: 'hidden',
+    width: 64,
+  },
+  avatarActions: {
+    flex: 1,
+    gap: 8,
+  },
+  avatarButton: {
+    alignItems: 'center',
+    borderColor: '#1e40af',
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    padding: 10,
+  },
+  avatarButtonText: {
+    color: '#bae6fd',
+    fontWeight: '800',
+  },
+  avatarClearButton: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
+    justifyContent: 'center',
+    padding: 8,
+  },
+  avatarClearText: {
+    color: '#cbd5e1',
+    fontWeight: '800',
   },
   identitySummary: {
     gap: 4,

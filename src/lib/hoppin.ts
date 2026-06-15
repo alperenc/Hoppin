@@ -30,6 +30,7 @@ type CreateCheckinInput = {
   style: BeerStyle;
   breweryName?: string;
   barcode?: string;
+  media?: string[];
   scope: CheckinScope;
   privacy: PrivacyLevel;
   note?: string;
@@ -57,6 +58,7 @@ type DbProfile = {
 type UpdateProfileInput = {
   displayName: string;
   username: string;
+  avatarUrl?: string | null;
 };
 
 type DbCity = {
@@ -810,6 +812,7 @@ export async function updateProfileIdentity(profileId: Id, input: UpdateProfileI
   const resolvedProfileId = await resolveProfileId(profileId);
   const displayName = input.displayName.trim();
   const username = normalizeEditableUsername(input.username);
+  const avatarUrl = input.avatarUrl === undefined ? undefined : (input.avatarUrl ?? '').trim() || null;
 
   if (!displayName) {
     throw new Error('Display name is required.');
@@ -832,6 +835,7 @@ export async function updateProfileIdentity(profileId: Id, input: UpdateProfileI
       ...existing,
       displayName,
       username,
+      ...(avatarUrl !== undefined ? { avatarUrl: avatarUrl ?? undefined } : {}),
     };
     profiles = profiles.map((profile) => (profile.id === resolvedProfileId ? nextProfile : profile));
     return nextProfile;
@@ -841,12 +845,18 @@ export async function updateProfileIdentity(profileId: Id, input: UpdateProfileI
     throw new Error('Profile id is not a valid UUID.');
   }
 
+  const payload: { display_name: string; username: string; avatar_url?: string | null } = {
+    display_name: displayName,
+    username,
+  };
+
+  if (avatarUrl !== undefined) {
+    payload.avatar_url = avatarUrl;
+  }
+
   const { data, error } = await supabase
     .from('profiles')
-    .update({
-      display_name: displayName,
-      username,
-    })
+    .update(payload)
     .eq('id', resolvedProfileId)
     .select('id,username,display_name,avatar_url,is_creator,created_at')
     .single();
@@ -1904,6 +1914,7 @@ export async function createCheckin(input: CreateCheckinInput, authorId?: Id): P
 
   const cityLat = input.scope === 'venue' ? input.cityLat : input.lat;
   const cityLng = input.scope === 'venue' ? input.cityLng : input.lng;
+  const media = Array.from(new Set((input.media ?? []).map((item) => item.trim()).filter(Boolean))).slice(0, 4);
 
   if (!useBackend) {
     const city = upsertCity(normalizedCity, normalizedCountry, cityLat, cityLng);
@@ -1917,7 +1928,7 @@ export async function createCheckin(input: CreateCheckinInput, authorId?: Id): P
       privacy: input.privacy,
       note: input.note?.trim() ? input.note.trim() : undefined,
       rating: normalizeRating(input.rating),
-      media: [],
+      media,
       ...(input.scope === 'venue'
         ? {
             venue: upsertVenue(input.venueName!.trim(), city, input.lat, input.lng, input.venueProvider ?? 'user', input.venueExternalId),
@@ -1944,7 +1955,7 @@ export async function createCheckin(input: CreateCheckinInput, authorId?: Id): P
     privacy: input.privacy,
     rating: normalizeRating(input.rating),
     note: input.note?.trim() || null,
-    photo_urls: [],
+    photo_urls: media,
   };
 
   const { data, error } = await supabase

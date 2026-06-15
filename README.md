@@ -7,14 +7,15 @@ Hoppin is a traveler-first social check-in app for beer experiences: record beer
 The app now includes an influencer-first social model with creator discovery, follower feed, Supabase auth, and a local preview fallback for unconfigured development builds.
 
 - Creator-driven follows graph (`follows`) drives discovery and feed ranking.
-- Signed-in users can claim and edit their profile display name and public handle.
-- Check-ins support venue or city scope.
+- Signed-in users can claim and edit their profile display name, public handle, and profile picture.
+- Check-ins support venue or city scope plus optional photo media uploaded through Supabase Storage.
 - Passport tab computes city/country/count metrics from personal activity.
 - Passport tab now includes a native map of city stamps (web fallback list view).
 - Check-in composer persists a new record and returns to feed.
 - Auth routing: unauthenticated sessions in Supabase builds are sent to `/auth` for Google OAuth or email sign-in/signup, and signed users land in tabs.
 - Check-in now includes venue/city suggestions from local seed data, Supabase hint search, and optional Google Places enrichment through the deployed `/api/places` proxy.
 - Native check-in can scan beer can/label barcodes and dedupe against existing beer records.
+- Profile pictures and check-in photos use the `hoppin-media` Supabase Storage bucket in configured builds.
 
 Implementation plan for full production rollout is tracked in [/docs/PLAN.md](/docs/PLAN.md).
 
