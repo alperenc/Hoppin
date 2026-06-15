@@ -22,6 +22,10 @@ type GoogleAutocompleteResponse = {
   }>;
 };
 
+type GoogleNearbyResponse = {
+  places?: GooglePlaceDetails[];
+};
+
 type GooglePlaceDetails = {
   id?: string;
   displayName?: {
@@ -46,6 +50,16 @@ const DETAILS_FIELD_MASK = [
   'addressComponents',
   'types',
 ].join(',');
+
+const NEARBY_FIELD_MASK = [
+  'places.id',
+  'places.displayName',
+  'places.location',
+  'places.addressComponents',
+  'places.types',
+].join(',');
+
+const nearbyIncludedTypes = ['brewery', 'brewpub', 'beer_garden', 'pub', 'bar', 'restaurant', 'cafe', 'night_club'];
 
 const isCityLike = (types: string[] = []) =>
   types.some((type) =>
@@ -145,8 +159,19 @@ export default async function handler(request: VercelRequestLike, response: Verc
   const rawQuery = request.query?.query;
   const query = Array.isArray(rawQuery) ? rawQuery[0] : rawQuery;
   const input = query?.trim().slice(0, 120) ?? '';
+  const rawLat = request.query?.lat;
+  const rawLng = request.query?.lng;
+  const latitude = Number(Array.isArray(rawLat) ? rawLat[0] : rawLat);
+  const longitude = Number(Array.isArray(rawLng) ? rawLng[0] : rawLng);
+  const hasCoordinates =
+    Number.isFinite(latitude) &&
+    Number.isFinite(longitude) &&
+    latitude >= -90 &&
+    latitude <= 90 &&
+    longitude >= -180 &&
+    longitude <= 180;
 
-  if (input.length < 2) {
+  if (input.length < 2 && !hasCoordinates) {
     response.status(200).json({ hints: [] });
     return;
   }
@@ -164,6 +189,42 @@ export default async function handler(request: VercelRequestLike, response: Verc
   }
 
   try {
+    if (hasCoordinates) {
+      const nearbyResponse = await fetch('https://places.googleapis.com/v1/places:searchNearby', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Goog-Api-Key': apiKey,
+          'X-Goog-FieldMask': NEARBY_FIELD_MASK,
+        },
+        body: JSON.stringify({
+          includedTypes: nearbyIncludedTypes,
+          maxResultCount: 5,
+          rankPreference: 'DISTANCE',
+          locationRestriction: {
+            circle: {
+              center: {
+                latitude,
+                longitude,
+              },
+              radius: 120,
+            },
+          },
+        }),
+      });
+
+      if (!nearbyResponse.ok) {
+        response.status(200).json({ hints: [] });
+        return;
+      }
+
+      const nearby = (await nearbyResponse.json()) as GoogleNearbyResponse;
+      response.status(200).json({
+        hints: uniqueHints((nearby.places ?? []).map(toHint).filter((hint): hint is LocationHint => Boolean(hint))).slice(0, 5),
+      });
+      return;
+    }
+
     const autocompleteResponse = await fetch('https://places.googleapis.com/v1/places:autocomplete', {
       method: 'POST',
       headers: {
