@@ -26,8 +26,15 @@ export function CityPassportMap({
   stamps,
   onSelectVisit,
 }: CityPassportMapProps) {
+  const regionKey = [
+    region.latitude.toFixed(3),
+    region.longitude.toFixed(3),
+    region.latitudeDelta.toFixed(3),
+    region.longitudeDelta.toFixed(3),
+  ].join(':');
+
   return (
-    <MapView style={styles.map} initialRegion={region}>
+    <MapView key={regionKey} style={styles.map} initialRegion={region}>
       {stamps.map((stamp) => {
         const matchedVisit = cityMapByKey.get(cityKey(stamp.city, stamp.country));
         const selected = selectedVisit?.city === stamp.city && selectedVisit?.country === stamp.country;
