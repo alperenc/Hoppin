@@ -5,7 +5,7 @@ import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TouchableOp
 import { useRouter } from 'expo-router';
 import { Beer, MapPin, ScanBarcode, Sparkles, Star, UsersRound, X } from 'lucide-react-native';
 import { BeerStyle, LocationHint, PrivacyLevel } from '@/src/types/hoppin';
-import { createCheckin, listNearbyVenueHints, listVenueOrCityHints, lookupBeerByBarcode } from '@/src/lib/hoppin';
+import { createCheckin, listNearbyVenueHints, listVenueOrCityHints, lookupBeerByBarcode, lookupBeerByName } from '@/src/lib/hoppin';
 import { resolveProtectedRoute, shouldRouteErrorToAuth } from '@/src/lib/sessionRouting';
 
 const styleChoices: BeerStyle[] = ['ipa', 'lager', 'pilsner', 'wheat', 'stout', 'porter', 'amber', 'sour', 'experimental', 'other'];
@@ -61,6 +61,7 @@ export default function Checkin() {
   const [privacy, setPrivacy] = useState<PrivacyLevel>('followers');
   const [style, setStyle] = useState<BeerStyle>('other');
   const [styleInferredConfidently, setStyleInferredConfidently] = useState(false);
+  const [beerNameMatchedFromLookup, setBeerNameMatchedFromLookup] = useState(false);
   const [venueName, setVenueName] = useState('');
   const [city, setCity] = useState('');
   const [country, setCountry] = useState('');
@@ -167,6 +168,7 @@ export default function Checkin() {
         setBeerName(matchedBeer.name);
         setStyle(matchedBeer.style);
         setStyleInferredConfidently(true);
+        setBeerNameMatchedFromLookup(false);
         styleEditedManually.current = false;
         stylePickedForBeerName.current = '';
         if (matchedBeer.brewery?.name) {
@@ -177,6 +179,7 @@ export default function Checkin() {
         setBreweryName('');
         setStyle('other');
         setStyleInferredConfidently(false);
+        setBeerNameMatchedFromLookup(false);
         styleEditedManually.current = false;
         stylePickedForBeerName.current = '';
       }
@@ -187,6 +190,7 @@ export default function Checkin() {
         setBreweryName('');
         setStyle('other');
         setStyleInferredConfidently(false);
+        setBeerNameMatchedFromLookup(false);
         styleEditedManually.current = false;
         stylePickedForBeerName.current = '';
       }
@@ -366,6 +370,42 @@ export default function Checkin() {
 
     void applyCurrentLocation('silent');
   }, [applyCurrentLocation, city, country, isRouteReady]);
+
+  useEffect(() => {
+    const lookupName = beerName.trim();
+    if (!isRouteReady || styleEditedManually.current || scannedBarcodeMatchedBeer || lookupName.length < 3) {
+      setBeerNameMatchedFromLookup(false);
+      return;
+    }
+
+    const lookupEditVersion = beerEditVersion.current;
+    const handle = setTimeout(async () => {
+      try {
+        const matchedBeer = await lookupBeerByName(lookupName);
+        if (styleEditedManually.current || beerEditVersion.current !== lookupEditVersion || beerName.trim() !== lookupName) {
+          return;
+        }
+
+        if (!matchedBeer) {
+          setBeerNameMatchedFromLookup(false);
+          return;
+        }
+
+        setStyle(matchedBeer.style);
+        setStyleInferredConfidently(false);
+        setBeerNameMatchedFromLookup(true);
+        if (matchedBeer.brewery?.name && !breweryName.trim()) {
+          setBreweryName(matchedBeer.brewery.name);
+        }
+      } catch {
+        setBeerNameMatchedFromLookup(false);
+      }
+    }, 350);
+
+    return () => {
+      clearTimeout(handle);
+    };
+  }, [beerName, breweryName, isRouteReady, scannedBarcodeMatchedBeer]);
 
   useEffect(() => {
     if (!isRouteReady) {
@@ -589,6 +629,8 @@ export default function Checkin() {
     ? 'Picked by you'
     : scannedBarcodeMatchedBeer
       ? 'Matched from scan'
+    : beerNameMatchedFromLookup
+      ? 'Matched from saved beers'
     : styleInferredConfidently
       ? 'Inferred from style words'
       : 'No confident match';
@@ -658,6 +700,7 @@ export default function Checkin() {
               stylePickedForBeerName.current = '';
             }
             setBeerName(value);
+            setBeerNameMatchedFromLookup(false);
             if (!styleEditedManually.current) {
               const inferred = inferBeerStyle(value);
               setStyle(inferred.style);
@@ -679,6 +722,7 @@ export default function Checkin() {
                 styleEditedManually.current = true;
                 stylePickedForBeerName.current = beerName;
                 setStyleInferredConfidently(false);
+                setBeerNameMatchedFromLookup(false);
                 setStyle(choice);
                 if (choice !== style) {
                   markBeerFieldsEdited();

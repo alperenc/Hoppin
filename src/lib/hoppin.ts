@@ -981,6 +981,27 @@ export async function lookupBeerByBarcode(rawBarcode: string): Promise<Beer | nu
   return mapBeerLookupRow(row, barcode);
 }
 
+export async function lookupBeerByName(rawName: string): Promise<Beer | null> {
+  const name = normalizeText(rawName);
+  if (name.length < 3) return null;
+
+  if (!useSupabase()) {
+    const beer = beers.find((candidate) => candidate.name.toLowerCase() === name.toLowerCase());
+    return beer ? normalizeBeer(beer) : null;
+  }
+
+  const { data, error } = await supabase
+    .from('beers')
+    .select('id,name,style,abv,ibu,brewery_id,barcode,created_at,created_by,breweries(id,name)')
+    .ilike('name', name)
+    .order('created_at', { ascending: true })
+    .limit(1);
+  if (error) throw new Error(error.message);
+
+  const row = (data?.[0] as (DbBeer & { breweries?: DbBrewery[] | DbBrewery | null }) | undefined);
+  return row ? mapBeerLookupRow(row) : null;
+}
+
 function mapBeerLookupRow(row: DbBeer & { breweries?: DbBrewery[] | DbBrewery | null }, fallbackBarcode?: string): Beer {
   const brewery = Array.isArray(row.breweries) ? row.breweries[0] : row.breweries;
 
