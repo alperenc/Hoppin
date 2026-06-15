@@ -243,6 +243,17 @@ export default function Passport() {
         </View>
       </View>
 
+      <Text style={styles.sectionTitle}>City map</Text>
+      <View style={[styles.card, styles.mapCard]}>
+        <CityPassportMap
+          cityMapByKey={cityMapByKey}
+          region={region}
+          selectedVisit={selectedVisit}
+          stamps={mapReadyStamps}
+          onSelectVisit={setSelectedVisit}
+        />
+      </View>
+
       <Text style={styles.sectionTitle}>Country filters</Text>
       <ScrollView
         horizontal
@@ -297,17 +308,6 @@ export default function Passport() {
             );
           })
         )}
-      </View>
-
-      <Text style={styles.sectionTitle}>City map</Text>
-      <View style={styles.card}>
-        <CityPassportMap
-          cityMapByKey={cityMapByKey}
-          region={region}
-          selectedVisit={selectedVisit}
-          stamps={mapReadyStamps}
-          onSelectVisit={setSelectedVisit}
-        />
       </View>
 
       <Text style={styles.sectionTitle}>Who checked in here</Text>
@@ -431,6 +431,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 12,
     gap: 8,
+  },
+  mapCard: {
+    padding: 6,
   },
   timelineCard: {
     borderRadius: 10,
