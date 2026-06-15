@@ -1688,14 +1688,14 @@ export async function getPassportSummary(profileId?: Id): Promise<PassportSummar
       .from('passport_summary')
       .select('profile_id,checkins_count,cities_count,countries_count,unique_beers_count,unique_breweries_count')
       .eq('profile_id', resolvedProfileId)
-      .single(),
+      .limit(1),
     supabase.rpc('get_passport_top_styles', { p_profile_id: resolvedProfileId }),
   ]);
 
-  if (summaryRow.error && summaryRow.error.code !== 'PGRST116') {
+  if (summaryRow.error) {
     throw new Error(summaryRow.error.message);
   }
-  const base = mapDbPassportSummary(summaryRow.data);
+  const base = mapDbPassportSummary(summaryRow.data?.[0]);
   if (topStyles.error) {
     throw new Error(topStyles.error.message);
   }
