@@ -229,6 +229,7 @@ export default function Home() {
 
   return (
     <FlatList
+      style={styles.list}
       contentContainerStyle={styles.content}
       data={feed}
       keyExtractor={(item) => item.checkin.id}
@@ -251,7 +252,12 @@ export default function Home() {
 }
 
 const styles = StyleSheet.create({
+  list: {
+    flex: 1,
+    backgroundColor: '#071022',
+  },
   content: {
+    flexGrow: 1,
     padding: 16,
     paddingTop: 48,
     paddingBottom: 32,
