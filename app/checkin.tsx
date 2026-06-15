@@ -56,6 +56,8 @@ export default function Checkin() {
   const [note, setNote] = useState('');
   const [latitude, setLatitude] = useState('');
   const [longitude, setLongitude] = useState('');
+  const [cityLatitude, setCityLatitude] = useState('');
+  const [cityLongitude, setCityLongitude] = useState('');
   const [rating, setRating] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [locationHints, setLocationHints] = useState<LocationHint[]>([]);
@@ -75,6 +77,8 @@ export default function Checkin() {
   const clearSavedCoordinates = () => {
     setLatitude('');
     setLongitude('');
+    setCityLatitude('');
+    setCityLongitude('');
   };
 
   const clearSelectedVenueReference = () => {
@@ -194,6 +198,13 @@ export default function Checkin() {
     if (hint.lat !== undefined && hint.lng !== undefined) {
       setLatitude(String(hint.lat));
       setLongitude(String(hint.lng));
+      if (!hint.venueName) {
+        setCityLatitude(String(hint.lat));
+        setCityLongitude(String(hint.lng));
+      } else {
+        setCityLatitude('');
+        setCityLongitude('');
+      }
     } else {
       clearSavedCoordinates();
     }
@@ -231,6 +242,8 @@ export default function Checkin() {
 
       setLatitude(lat.toFixed(6));
       setLongitude(lng.toFixed(6));
+      setCityLatitude(lat.toFixed(6));
+      setCityLongitude(lng.toFixed(6));
 
       const nearbyHints = await listNearbyVenueHints(lat, lng);
       if (locationEditVersion.current !== locationEditSnapshot) {
@@ -388,6 +401,8 @@ export default function Checkin() {
 
     const rawLatitude = latitude.trim();
     const rawLongitude = longitude.trim();
+    const rawCityLatitude = cityLatitude.trim();
+    const rawCityLongitude = cityLongitude.trim();
     let parsedLatitude: number | undefined;
     let parsedLongitude: number | undefined;
     let parsedCityLatitude: number | undefined;
@@ -409,6 +424,26 @@ export default function Checkin() {
 
       if (parsedLatitude < -90 || parsedLatitude > 90 || parsedLongitude < -180 || parsedLongitude > 180) {
         Alert.alert('Invalid location', 'Saved coordinates are outside the supported range.');
+        return;
+      }
+    }
+
+    if (hasVenue && (rawCityLatitude || rawCityLongitude)) {
+      if (!rawCityLatitude || !rawCityLongitude) {
+        Alert.alert('Invalid city location', 'Use your current place again or choose a city hint.');
+        return;
+      }
+
+      parsedCityLatitude = Number(rawCityLatitude);
+      parsedCityLongitude = Number(rawCityLongitude);
+
+      if (Number.isNaN(parsedCityLatitude) || Number.isNaN(parsedCityLongitude)) {
+        Alert.alert('Invalid city location', 'Saved city coordinates are not valid numbers.');
+        return;
+      }
+
+      if (parsedCityLatitude < -90 || parsedCityLatitude > 90 || parsedCityLongitude < -180 || parsedCityLongitude > 180) {
+        Alert.alert('Invalid city location', 'Saved city coordinates are outside the supported range.');
         return;
       }
     }

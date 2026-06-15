@@ -59,7 +59,7 @@ const NEARBY_FIELD_MASK = [
   'places.types',
 ].join(',');
 
-const nearbyIncludedTypes = ['bar', 'restaurant', 'cafe', 'night_club'];
+const nearbyIncludedTypes = ['brewery', 'brewpub', 'beer_garden', 'pub', 'bar', 'restaurant', 'cafe', 'night_club'];
 
 const isCityLike = (types: string[] = []) =>
   types.some((type) =>
@@ -163,7 +163,13 @@ export default async function handler(request: VercelRequestLike, response: Verc
   const rawLng = request.query?.lng;
   const latitude = Number(Array.isArray(rawLat) ? rawLat[0] : rawLat);
   const longitude = Number(Array.isArray(rawLng) ? rawLng[0] : rawLng);
-  const hasCoordinates = Number.isFinite(latitude) && Number.isFinite(longitude);
+  const hasCoordinates =
+    Number.isFinite(latitude) &&
+    Number.isFinite(longitude) &&
+    latitude >= -90 &&
+    latitude <= 90 &&
+    longitude >= -180 &&
+    longitude <= 180;
 
   if (input.length < 2 && !hasCoordinates) {
     response.status(200).json({ hints: [] });
@@ -194,6 +200,7 @@ export default async function handler(request: VercelRequestLike, response: Verc
         body: JSON.stringify({
           includedTypes: nearbyIncludedTypes,
           maxResultCount: 5,
+          rankPreference: 'DISTANCE',
           locationRestriction: {
             circle: {
               center: {
