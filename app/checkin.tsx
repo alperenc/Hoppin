@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { BarcodeScanningResult, CameraView, useCameraPermissions } from 'expo-camera';
 import * as Location from 'expo-location';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, Alert, View, Platform } from 'react-native';
@@ -8,7 +8,7 @@ import { BeerStyle, LocationHint, PrivacyLevel } from '@/src/types/hoppin';
 import { createCheckin, listVenueOrCityHints, lookupBeerByBarcode } from '@/src/lib/hoppin';
 import { resolveProtectedRoute, shouldRouteErrorToAuth } from '@/src/lib/sessionRouting';
 
-const styleChoices: BeerStyle[] = ['ipa', 'pilsner', 'lager', 'porter', 'stout', 'wheat', 'amber', 'sour', 'experimental', 'other'];
+const primaryStyleChoices: BeerStyle[] = ['ipa', 'lager', 'pilsner', 'wheat', 'stout', 'other'];
 const audienceOptions: Array<{ value: PrivacyLevel; label: string; caption: string }> = [
   { value: 'followers', label: 'Crew', caption: 'Followers see it' },
   { value: 'public', label: 'Open tap', caption: 'Anyone can discover it' },
@@ -25,15 +25,29 @@ const samePlaceText = (left: string | undefined, right: string) =>
 
 const normalizeScannedCode = (value: string) => value.replace(/[^0-9A-Za-z]/g, '').trim();
 
+function inferBeerStyle(value: string): BeerStyle {
+  const normalized = value.toLowerCase();
+  if (/\b(ipa|i\.p\.a\.|pale ale|hazy|neipa|double ipa|dip[ao])\b/.test(normalized)) return 'ipa';
+  if (/\b(pils|pilsner)\b/.test(normalized)) return 'pilsner';
+  if (/\b(lager|helles|bock|maerzen|marzen|dunkel)\b/.test(normalized)) return 'lager';
+  if (/\b(stout|imperial stout|milk stout|oatmeal stout)\b/.test(normalized)) return 'stout';
+  if (/\b(porter)\b/.test(normalized)) return 'porter';
+  if (/\b(wheat|weiss|weizen|witbier|hefe)\b/.test(normalized)) return 'wheat';
+  if (/\b(amber|red ale)\b/.test(normalized)) return 'amber';
+  if (/\b(sour|gose|lambic|berliner)\b/.test(normalized)) return 'sour';
+  return 'other';
+}
+
 export default function Checkin() {
   const router = useRouter();
   const beerEditVersion = useRef(0);
+  const styleEditedManually = useRef(false);
   const scanLookupInFlight = useRef(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [beerName, setBeerName] = useState('');
   const [breweryName, setBreweryName] = useState('');
   const [privacy, setPrivacy] = useState<PrivacyLevel>('followers');
-  const [style, setStyle] = useState<BeerStyle>('ipa');
+  const [style, setStyle] = useState<BeerStyle>('other');
   const [venueName, setVenueName] = useState('');
   const [city, setCity] = useState('');
   const [country, setCountry] = useState('');
@@ -126,26 +140,96 @@ export default function Checkin() {
         setScannedBarcodeMatchedBeer(true);
         setBeerName(matchedBeer.name);
         setStyle(matchedBeer.style);
+        styleEditedManually.current = false;
         if (matchedBeer.brewery?.name) {
           setBreweryName(matchedBeer.brewery.name);
         }
       } else if (shouldClearPriorMatchedBeer) {
         setBeerName('');
         setBreweryName('');
-        setStyle('ipa');
+        setStyle('other');
+        styleEditedManually.current = false;
       }
     } catch {
       // A failed lookup should not block saving a new beer with the scanned code.
       if (beerEditVersion.current === lookupEditVersion && shouldClearPriorMatchedBeer) {
         setBeerName('');
         setBreweryName('');
-        setStyle('ipa');
+        setStyle('other');
+        styleEditedManually.current = false;
       }
     } finally {
       scanLookupInFlight.current = false;
       setIsResolvingBarcode(false);
     }
   };
+
+  const applyHint = (hint: LocationHint) => {
+    if (hint.venueName) {
+      setVenueName(hint.venueName);
+      setSelectedVenueProvider(hint.provider);
+      setSelectedVenueExternalId(hint.externalId);
+    } else {
+      setVenueName('');
+      clearSelectedVenueReference();
+    }
+    if (hint.city) {
+      setCity(hint.city);
+    }
+    if (hint.country) {
+      setCountry(hint.country);
+    }
+    if (hint.lat !== undefined && hint.lng !== undefined) {
+      setLatitude(String(hint.lat));
+      setLongitude(String(hint.lng));
+    } else {
+      clearSavedCoordinates();
+    }
+    setLocationHints([]);
+  };
+
+  const applyCurrentLocation = useCallback(async (mode: 'manual' | 'silent' = 'manual') => {
+    try {
+      setIsLocating(true);
+
+      if (mode === 'silent') {
+        const existingPermission = await Location.getForegroundPermissionsAsync();
+        if (existingPermission.status !== 'granted') {
+          return;
+        }
+      } else {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Location blocked', 'Enable location permissions to use your current city.');
+          return;
+        }
+      }
+
+      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const lat = position.coords.latitude;
+      const lng = position.coords.longitude;
+      setLatitude(lat.toFixed(6));
+      setLongitude(lng.toFixed(6));
+
+      const places = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
+      const first = places?.[0];
+      if (first) {
+        if (first.city && !city) {
+          setCity(first.city);
+        }
+        if (first.country && !country) {
+          setCountry(first.country);
+        }
+      }
+    } catch (error) {
+      if (mode === 'manual') {
+        const message = error instanceof Error ? error.message : 'Could not read location.';
+        Alert.alert('Location failed', message);
+      }
+    } finally {
+      setIsLocating(false);
+    }
+  }, [city, country]);
 
   useEffect(() => {
     let mounted = true;
@@ -183,6 +267,14 @@ export default function Checkin() {
   }, [attempt, router]);
 
   useEffect(() => {
+    if (!isRouteReady || city || country) {
+      return;
+    }
+
+    void applyCurrentLocation('silent');
+  }, [applyCurrentLocation, city, country, isRouteReady]);
+
+  useEffect(() => {
     if (!isRouteReady) {
       return;
     }
@@ -209,30 +301,6 @@ export default function Checkin() {
       clearTimeout(handle);
     };
   }, [city, country, isRouteReady, venueName]);
-
-  const applyHint = (hint: LocationHint) => {
-    if (hint.venueName) {
-      setVenueName(hint.venueName);
-      setSelectedVenueProvider(hint.provider);
-      setSelectedVenueExternalId(hint.externalId);
-    } else {
-      setVenueName('');
-      clearSelectedVenueReference();
-    }
-    if (hint.city) {
-      setCity(hint.city);
-    }
-    if (hint.country) {
-      setCountry(hint.country);
-    }
-    if (hint.lat !== undefined && hint.lng !== undefined) {
-      setLatitude(String(hint.lat));
-      setLongitude(String(hint.lng));
-    } else {
-      clearSavedCoordinates();
-    }
-    setLocationHints([]);
-  };
 
   const handleSubmit = async () => {
     if (isSaving) {
@@ -398,39 +466,6 @@ export default function Checkin() {
     }
   };
 
-  const applyCurrentLocation = async () => {
-    try {
-      setIsLocating(true);
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Location blocked', 'Enable location permissions to use your current city.');
-        return;
-      }
-
-      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      const lat = position.coords.latitude;
-      const lng = position.coords.longitude;
-      setLatitude(lat.toFixed(6));
-      setLongitude(lng.toFixed(6));
-
-      const places = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
-      const first = places?.[0];
-      if (first) {
-        if (first.city && !city) {
-          setCity(first.city);
-        }
-        if (first.country && !country) {
-          setCountry(first.country);
-        }
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Could not read location.';
-      Alert.alert('Location failed', message);
-    } finally {
-      setIsLocating(false);
-    }
-  };
-
   const locationStatus = city && country ? `${city}, ${country}` : 'City and country create the passport stamp';
   const trimmedBeerName = beerName.trim();
   const trimmedVenueName = venueName.trim();
@@ -466,34 +501,24 @@ export default function Checkin() {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <View style={styles.hero}>
+      <View style={styles.topBar}>
         <View style={styles.kickerRow}>
-          <Sparkles color="#f59e0b" size={16} />
-          <Text style={styles.kicker}>New passport stamp</Text>
+          <Sparkles color="#f59e0b" size={15} />
+          <Text style={styles.kicker}>New stamp</Text>
         </View>
-        <Text style={styles.title}>Stamp a pour worth finding again.</Text>
-        <Text style={styles.subtitle}>Build your beer passport from the places, styles, and moments you want to remember.</Text>
+        <TouchableOpacity accessibilityLabel="Close check-in" style={styles.closeButton} onPress={() => router.replace('/home')}>
+          <X color="#e2e8f0" size={20} />
+        </TouchableOpacity>
       </View>
-
-      <View style={styles.preview}>
-        <View style={styles.previewTop}>
-          <Text style={styles.previewKicker}>Passport preview</Text>
-          <Text style={styles.previewBadge}>{trimmedVenueName ? 'Venue stamp' : 'City stamp'}</Text>
-        </View>
-        <Text style={styles.previewTitle}>{trimmedBeerName || 'Your next pour'}</Text>
-        <View style={styles.previewPlaceRow}>
-          <MapPin color="#86efac" size={16} />
-          <Text style={styles.previewPlace}>{trimmedVenueName ? `${trimmedVenueName} - ${placePreview}` : placePreview}</Text>
-        </View>
-        <Text style={styles.previewMeta}>{audienceLabel} audience. {formatStyle(style)} style. Details can stay light.</Text>
-      </View>
+      <Text style={styles.title}>Stamp this pour.</Text>
+      <Text style={styles.subtitle}>Start with beer and place. Everything else is optional.</Text>
 
       <View style={styles.panel}>
         <View style={styles.panelHeader}>
           <Beer color="#f59e0b" size={22} />
           <View>
-            <Text style={styles.panelTitle}>What's in the glass?</Text>
-            <Text style={styles.panelMeta}>Start with the name. Everything else can wait.</Text>
+            <Text style={styles.panelTitle}>1. What are you drinking?</Text>
+            <Text style={styles.panelMeta}>We infer the style, but you can override it.</Text>
           </View>
         </View>
         <TextInput
@@ -503,9 +528,33 @@ export default function Checkin() {
           value={beerName}
           onChangeText={(value) => {
             setBeerName(value);
+            if (!styleEditedManually.current) {
+              setStyle(inferBeerStyle(value));
+            }
             markBeerFieldsEdited();
           }}
         />
+        <View style={styles.typeHeader}>
+          <Text style={styles.sectionLabel}>Beer type</Text>
+          <Text style={styles.typeHint}>{styleEditedManually.current ? 'Picked by you' : 'Inferred from name'}</Text>
+        </View>
+        <View style={styles.chipRow}>
+          {primaryStyleChoices.map((choice) => (
+            <TouchableOpacity
+              key={choice}
+              style={[styles.chip, style === choice ? styles.chipActive : undefined]}
+              onPress={() => {
+                styleEditedManually.current = true;
+                setStyle(choice);
+                if (choice !== style) {
+                  markBeerFieldsEdited();
+                }
+              }}
+            >
+              <Text style={[styles.chipText, style === choice ? styles.chipTextActive : undefined]}>{formatStyle(choice)}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
         <View style={styles.scanStrip}>
           <TouchableOpacity style={styles.scanButton} onPress={openScanner} disabled={isResolvingBarcode}>
             <ScanBarcode color="#7dd3fc" size={18} />
@@ -549,7 +598,7 @@ export default function Checkin() {
         <View style={styles.panelHeader}>
           <MapPin color="#22c55e" size={22} />
           <View>
-            <Text style={styles.panelTitle}>Where should this stamp live?</Text>
+            <Text style={styles.panelTitle}>2. Where did it happen?</Text>
             <Text style={styles.panelMeta}>{locationStatus}</Text>
           </View>
         </View>
@@ -606,17 +655,30 @@ export default function Checkin() {
         ) : null}
         <TouchableOpacity
           style={styles.ghostButton}
-          onPress={applyCurrentLocation}
+          onPress={() => applyCurrentLocation('manual')}
           disabled={isLocating}
         >
           <Text style={styles.ghostButtonText}>{isLocating ? 'Reading your city...' : 'Use my current city'}</Text>
         </TouchableOpacity>
       </View>
 
+      <View style={styles.preview}>
+        <View style={styles.previewTop}>
+          <Text style={styles.previewKicker}>Stamp preview</Text>
+          <Text style={styles.previewBadge}>{trimmedVenueName ? 'Venue' : 'City'}</Text>
+        </View>
+        <Text style={styles.previewTitle}>{trimmedBeerName || 'Your next pour'}</Text>
+        <View style={styles.previewPlaceRow}>
+          <MapPin color="#86efac" size={16} />
+          <Text style={styles.previewPlace}>{trimmedVenueName ? `${trimmedVenueName} - ${placePreview}` : placePreview}</Text>
+        </View>
+        <Text style={styles.previewMeta}>{formatStyle(style)}. {audienceLabel} audience.</Text>
+      </View>
+
       <TouchableOpacity style={styles.detailsToggle} onPress={() => setShowDetails((current) => !current)}>
         <View style={styles.detailsCopy}>
           <Text style={styles.detailsTitle}>Fine-tune the memory</Text>
-          <Text style={styles.detailsMeta}>Brewery, style, audience, rating, and tasting note.</Text>
+          <Text style={styles.detailsMeta}>Brewery, audience, rating, and tasting note.</Text>
         </View>
         <Text style={styles.detailsAction}>{showDetails ? 'Hide' : 'Add'}</Text>
       </TouchableOpacity>
@@ -634,24 +696,6 @@ export default function Checkin() {
               markBeerFieldsEdited();
             }}
           />
-
-          <Text style={styles.sectionLabel}>Style</Text>
-          <View style={styles.chipRow}>
-            {styleChoices.map((choice) => (
-              <TouchableOpacity
-                key={choice}
-                style={[styles.chip, style === choice ? styles.chipActive : undefined]}
-                onPress={() => {
-                  setStyle(choice);
-                  if (choice !== style) {
-                    markBeerFieldsEdited();
-                  }
-                }}
-              >
-                <Text style={[styles.chipText, style === choice ? styles.chipTextActive : undefined]}>{formatStyle(choice)}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
 
           <Text style={styles.sectionLabel}>Audience</Text>
           <View style={styles.audienceList}>
@@ -706,12 +750,28 @@ const styles = StyleSheet.create({
   container: {
     flexGrow: 1,
     padding: 16,
-    paddingTop: 48,
+    paddingTop: 22,
     paddingBottom: 32,
     backgroundColor: '#071022',
     width: '100%',
     maxWidth: 760,
     alignSelf: 'center',
+  },
+  topBar: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  closeButton: {
+    alignItems: 'center',
+    backgroundColor: '#0b1220',
+    borderColor: '#334155',
+    borderRadius: 8,
+    borderWidth: 1,
+    height: 40,
+    justifyContent: 'center',
+    width: 40,
   },
   hero: {
     marginBottom: 18,
@@ -767,14 +827,15 @@ const styles = StyleSheet.create({
   },
   title: {
     color: '#f8fafc',
-    fontSize: 34,
-    lineHeight: 40,
-    fontWeight: '800',
+    fontSize: 30,
+    lineHeight: 35,
+    fontWeight: '900',
   },
   subtitle: {
     color: '#94a3b8',
     lineHeight: 22,
     fontSize: 15,
+    marginBottom: 16,
   },
   preview: {
     borderWidth: 1,
@@ -951,6 +1012,17 @@ const styles = StyleSheet.create({
   },
   inlineInput: {
     flex: 1,
+  },
+  typeHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  typeHint: {
+    color: '#94a3b8',
+    fontSize: 12,
+    fontWeight: '700',
   },
   chipRow: {
     flexDirection: 'row',
