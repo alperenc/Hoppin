@@ -54,6 +54,7 @@ export default function Checkin() {
   const autoFilledVenue = useRef(false);
   const styleEditedManually = useRef(false);
   const stylePickedForBeerName = useRef('');
+  const breweryEditedManually = useRef(false);
   const scanLookupInFlight = useRef(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [beerName, setBeerName] = useState('');
@@ -164,6 +165,7 @@ export default function Checkin() {
       }
 
       if (matchedBeer) {
+        beerEditVersion.current += 1;
         setScannedBarcodeMatchedBeer(true);
         setBeerName(matchedBeer.name);
         setStyle(matchedBeer.style);
@@ -172,9 +174,11 @@ export default function Checkin() {
         styleEditedManually.current = false;
         stylePickedForBeerName.current = '';
         if (matchedBeer.brewery?.name) {
+          breweryEditedManually.current = false;
           setBreweryName(matchedBeer.brewery.name);
         }
       } else if (shouldClearPriorMatchedBeer) {
+        beerEditVersion.current += 1;
         setBeerName('');
         setBreweryName('');
         setStyle('other');
@@ -186,6 +190,7 @@ export default function Checkin() {
     } catch {
       // A failed lookup should not block saving a new beer with the scanned code.
       if (beerEditVersion.current === lookupEditVersion && shouldClearPriorMatchedBeer) {
+        beerEditVersion.current += 1;
         setBeerName('');
         setBreweryName('');
         setStyle('other');
@@ -394,7 +399,7 @@ export default function Checkin() {
         setStyle(matchedBeer.style);
         setStyleInferredConfidently(false);
         setBeerNameMatchedFromLookup(true);
-        if (matchedBeer.brewery?.name && !breweryName.trim()) {
+        if (matchedBeer.brewery?.name && !breweryName.trim() && !breweryEditedManually.current) {
           setBreweryName(matchedBeer.brewery.name);
         }
       } catch {
@@ -699,6 +704,9 @@ export default function Checkin() {
               styleEditedManually.current = false;
               stylePickedForBeerName.current = '';
             }
+            if (!shouldKeepManualStyle(beerName, value)) {
+              breweryEditedManually.current = false;
+            }
             setBeerName(value);
             setBeerNameMatchedFromLookup(false);
             if (!styleEditedManually.current) {
@@ -873,6 +881,7 @@ export default function Checkin() {
             style={styles.input}
             value={breweryName}
             onChangeText={(value) => {
+              breweryEditedManually.current = true;
               setBreweryName(value);
               markBeerFieldsEdited();
             }}

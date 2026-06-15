@@ -434,6 +434,10 @@ function normalizeText(value: string): string {
   return value.trim();
 }
 
+function escapeIlikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, '\\$&');
+}
+
 function normalizeBarcode(value?: string): string | undefined {
   const normalized = value?.replace(/[^0-9A-Za-z]/g, '').trim();
   if (!normalized) return undefined;
@@ -993,12 +997,13 @@ export async function lookupBeerByName(rawName: string): Promise<Beer | null> {
   const { data, error } = await supabase
     .from('beers')
     .select('id,name,style,abv,ibu,brewery_id,barcode,created_at,created_by,breweries(id,name)')
-    .ilike('name', name)
+    .ilike('name', escapeIlikePattern(name))
     .order('created_at', { ascending: true })
-    .limit(1);
+    .limit(5);
   if (error) throw new Error(error.message);
 
-  const row = (data?.[0] as (DbBeer & { breweries?: DbBrewery[] | DbBrewery | null }) | undefined);
+  const row = (data as (DbBeer & { breweries?: DbBrewery[] | DbBrewery | null })[] | null | undefined)
+    ?.find((candidate) => candidate.name.toLowerCase() === name.toLowerCase());
   return row ? mapBeerLookupRow(row) : null;
 }
 
