@@ -20,6 +20,7 @@ export default function Profile() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string>();
   const [isSignedIn, setIsSignedIn] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
 
   const loadProfile = useCallback(async () => {
     setIsLoading(true);
@@ -103,10 +104,16 @@ export default function Profile() {
   };
 
   const signOut = async () => {
+    if (isSigningOut) {
+      return;
+    }
+
     try {
+      setIsSigningOut(true);
       await signOutUser();
       router.replace('/');
     } catch {
+      setIsSigningOut(false);
       Alert.alert('Sign out failed', 'Please try again.');
     }
   };
@@ -129,8 +136,8 @@ export default function Profile() {
           <Text style={styles.ctaText}>Retry</Text>
         </TouchableOpacity>
         {isSignedIn ? (
-          <TouchableOpacity style={[styles.cta, styles.secondary]} onPress={signOut}>
-            <Text style={styles.ctaText}>Sign out</Text>
+          <TouchableOpacity style={[styles.cta, styles.secondary, isSigningOut ? styles.disabled : undefined]} onPress={signOut} disabled={isSigningOut}>
+            <Text style={styles.ctaText}>{isSigningOut ? 'Signing out...' : 'Sign out'}</Text>
           </TouchableOpacity>
         ) : (
           <TouchableOpacity style={[styles.cta, styles.secondary]} onPress={() => router.replace('/auth')}>
@@ -257,8 +264,8 @@ export default function Profile() {
       )}
       {isAuthAvailable && isSignedIn ? (
         <>
-          <TouchableOpacity style={[styles.cta, styles.secondary]} onPress={signOut}>
-            <Text style={styles.ctaText}>Sign out</Text>
+          <TouchableOpacity style={[styles.cta, styles.secondary, isSigningOut ? styles.disabled : undefined]} onPress={signOut} disabled={isSigningOut}>
+            <Text style={styles.ctaText}>{isSigningOut ? 'Signing out...' : 'Sign out'}</Text>
           </TouchableOpacity>
         </>
       ) : null}
