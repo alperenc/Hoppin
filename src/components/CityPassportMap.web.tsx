@@ -37,50 +37,53 @@ export function CityPassportMap({
 
   return (
     <View style={styles.map}>
-      <View style={styles.oceanGlow} />
-      <View style={[styles.landMass, styles.landNorthAmerica]} />
-      <View style={[styles.landMass, styles.landSouthAmerica]} />
-      <View style={[styles.landMass, styles.landEuropeAfrica]} />
-      <View style={[styles.landMass, styles.landAsia]} />
-      <View style={[styles.landMass, styles.landAustralia]} />
-      <View style={[styles.gridLine, styles.gridLineOne]} />
-      <View style={[styles.gridLine, styles.gridLineTwo]} />
-      <View style={[styles.gridLineVertical, styles.gridLineThree]} />
-      <View style={[styles.gridLineVertical, styles.gridLineFour]} />
+      <View style={styles.mapCanvas}>
+        <View style={styles.oceanGlow} />
+        <View style={[styles.landMass, styles.landNorthAmerica]} />
+        <View style={[styles.landMass, styles.landSouthAmerica]} />
+        <View style={[styles.landMass, styles.landEuropeAfrica]} />
+        <View style={[styles.landMass, styles.landAsia]} />
+        <View style={[styles.landMass, styles.landAustralia]} />
+        <View style={[styles.gridLine, styles.gridLineOne]} />
+        <View style={[styles.gridLine, styles.gridLineTwo]} />
+        <View style={[styles.gridLineVertical, styles.gridLineThree]} />
+        <View style={[styles.gridLineVertical, styles.gridLineFour]} />
 
-      {stamps.map((stamp) => {
-        const position = projectStamp(stamp);
-        const matchedVisit = cityMapByKey.get(cityKey(stamp.city, stamp.country));
-        const selected = selectedVisit?.city === stamp.city && selectedVisit?.country === stamp.country;
+        {stamps.map((stamp) => {
+          const position = projectStamp(stamp);
+          const matchedVisit = cityMapByKey.get(cityKey(stamp.city, stamp.country));
+          const selected = selectedVisit?.city === stamp.city && selectedVisit?.country === stamp.country;
 
-        return (
-          <TouchableOpacity
-            accessibilityLabel={`Select ${stamp.city}, ${stamp.country}`}
-            key={`${stamp.city}-${stamp.country}`}
-            onPress={() => {
-              onSelectVisit(
-                matchedVisit ?? {
-                  city: stamp.city,
-                  country: stamp.country,
-                  firstVisitedAt: stamp.lastVisitedAt,
-                  lastVisitedAt: stamp.lastVisitedAt,
-                  checkinCount: stamp.count,
+          return (
+            <TouchableOpacity
+              accessibilityLabel={`Select ${stamp.city}, ${stamp.country}`}
+              key={`${stamp.city}-${stamp.country}`}
+              onPress={() => {
+                onSelectVisit(
+                  matchedVisit ?? {
+                    city: stamp.city,
+                    country: stamp.country,
+                    firstVisitedAt: stamp.lastVisitedAt,
+                    lastVisitedAt: stamp.lastVisitedAt,
+                    checkinCount: stamp.count,
+                  },
+                );
+              }}
+              style={[
+                styles.marker,
+                selected ? styles.markerSelected : undefined,
+                {
+                  left: position.left,
+                  top: position.top,
+                  zIndex: selected ? 3 : 1,
                 },
-              );
-            }}
-            style={[
-              styles.marker,
-              selected ? styles.markerSelected : undefined,
-              {
-                left: position.left,
-                top: position.top,
-              },
-            ]}
-          >
-            <Text style={styles.markerText}>{Math.max(1, stamp.count)}</Text>
-          </TouchableOpacity>
-        );
-      })}
+              ]}
+            >
+              <Text style={styles.markerText}>{Math.max(1, stamp.count)}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
 
       <View style={styles.mapCopy}>
         <Text style={styles.mapKicker}>{stamps.length} city stamps</Text>
@@ -103,7 +106,11 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: '#071426',
     overflow: 'hidden',
+  },
+  mapCanvas: {
+    height: 208,
     position: 'relative',
+    overflow: 'hidden',
   },
   oceanGlow: {
     position: 'absolute',
@@ -212,11 +219,8 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   mapCopy: {
-    position: 'absolute',
-    left: 14,
-    right: 14,
-    bottom: 14,
-    pointerEvents: 'none',
+    margin: 12,
+    marginTop: 0,
     borderRadius: 8,
     backgroundColor: 'rgba(7, 16, 34, 0.84)',
     borderColor: '#1e3a5f',
