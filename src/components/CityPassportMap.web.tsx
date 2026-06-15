@@ -216,6 +216,7 @@ const styles = StyleSheet.create({
     left: 14,
     right: 14,
     bottom: 14,
+    pointerEvents: 'none',
     borderRadius: 8,
     backgroundColor: 'rgba(7, 16, 34, 0.84)',
     borderColor: '#1e3a5f',
