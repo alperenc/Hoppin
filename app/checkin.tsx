@@ -24,15 +24,24 @@ const samePlaceText = (left: string | undefined, right: string) =>
   left?.trim().toLowerCase() === right.trim().toLowerCase();
 
 const normalizeScannedCode = (value: string) => value.replace(/[^0-9A-Za-z]/g, '').trim();
+const normalizeBeerNameForStyle = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+const shouldKeepManualStyle = (pickedForName: string, nextName: string) => {
+  const pickedFor = normalizeBeerNameForStyle(pickedForName);
+  const next = normalizeBeerNameForStyle(nextName);
+  if (!next) return false;
+  if (!pickedFor) return true;
+  return pickedFor.includes(next) || next.includes(pickedFor);
+};
 
 function inferBeerStyle(value: string): BeerStyle {
-  const normalized = value.toLowerCase();
-  if (/\b(ipa|i\.p\.a\.|pale ale|hazy|neipa|double ipa|dip[ao])\b/.test(normalized)) return 'ipa';
+  const normalized = normalizeBeerNameForStyle(value);
+  if (/\b(ipa|i p a|pale ale|hazy|neipa|double ipa|dip[ao])\b/.test(normalized)) return 'ipa';
   if (/\b(pils|pilsner)\b/.test(normalized)) return 'pilsner';
-  if (/\b(lager|helles|bock|maerzen|marzen|dunkel)\b/.test(normalized)) return 'lager';
+  if (/\b(lager|helles|bock|maerzen|marzen|dunkel|stella|stella artois)\b/.test(normalized)) return 'lager';
   if (/\b(stout|imperial stout|milk stout|oatmeal stout)\b/.test(normalized)) return 'stout';
   if (/\b(porter)\b/.test(normalized)) return 'porter';
-  if (/\b(wheat|weiss|weizen|witbier|hefe)\b/.test(normalized)) return 'wheat';
+  if (/\b(wheat|weiss|weizen|wit|witbier|white|blanche|belgian white|hefe)\b/.test(normalized)) return 'wheat';
   if (/\b(amber|red ale)\b/.test(normalized)) return 'amber';
   if (/\b(sour|gose|lambic|berliner)\b/.test(normalized)) return 'sour';
   return 'other';
@@ -44,6 +53,7 @@ export default function Checkin() {
   const locationEditVersion = useRef(0);
   const autoFilledVenue = useRef(false);
   const styleEditedManually = useRef(false);
+  const stylePickedForBeerName = useRef('');
   const scanLookupInFlight = useRef(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [beerName, setBeerName] = useState('');
@@ -156,6 +166,7 @@ export default function Checkin() {
         setBeerName(matchedBeer.name);
         setStyle(matchedBeer.style);
         styleEditedManually.current = false;
+        stylePickedForBeerName.current = '';
         if (matchedBeer.brewery?.name) {
           setBreweryName(matchedBeer.brewery.name);
         }
@@ -164,6 +175,7 @@ export default function Checkin() {
         setBreweryName('');
         setStyle('other');
         styleEditedManually.current = false;
+        stylePickedForBeerName.current = '';
       }
     } catch {
       // A failed lookup should not block saving a new beer with the scanned code.
@@ -172,6 +184,7 @@ export default function Checkin() {
         setBreweryName('');
         setStyle('other');
         styleEditedManually.current = false;
+        stylePickedForBeerName.current = '';
       }
     } finally {
       scanLookupInFlight.current = false;
@@ -629,6 +642,10 @@ export default function Checkin() {
           style={styles.heroInput}
           value={beerName}
           onChangeText={(value) => {
+            if (styleEditedManually.current && !shouldKeepManualStyle(stylePickedForBeerName.current, value)) {
+              styleEditedManually.current = false;
+              stylePickedForBeerName.current = '';
+            }
             setBeerName(value);
             if (!styleEditedManually.current) {
               setStyle(inferBeerStyle(value));
@@ -647,6 +664,7 @@ export default function Checkin() {
               style={[styles.chip, style === choice ? styles.chipActive : undefined]}
               onPress={() => {
                 styleEditedManually.current = true;
+                stylePickedForBeerName.current = beerName;
                 setStyle(choice);
                 if (choice !== style) {
                   markBeerFieldsEdited();
