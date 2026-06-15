@@ -700,11 +700,15 @@ export default function Checkin() {
           style={styles.heroInput}
           value={beerName}
           onChangeText={(value) => {
+            const isDifferentBeer = !shouldKeepManualStyle(beerName, value);
             if (styleEditedManually.current && !shouldKeepManualStyle(stylePickedForBeerName.current, value)) {
               styleEditedManually.current = false;
               stylePickedForBeerName.current = '';
             }
-            if (!shouldKeepManualStyle(beerName, value)) {
+            if (isDifferentBeer && !breweryEditedManually.current) {
+              setBreweryName('');
+            }
+            if (isDifferentBeer) {
               breweryEditedManually.current = false;
             }
             setBeerName(value);
