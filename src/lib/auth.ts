@@ -2,7 +2,7 @@ import { makeRedirectUri } from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import { Platform } from 'react-native';
 import { AuthChangeEvent, AuthResponse, Session, User } from '@supabase/supabase-js';
-import { isSupabaseConfigured, supabase } from '@/src/lib/supabase';
+import { clearSupabaseAuthStorage, isSupabaseConfigured, supabase } from '@/src/lib/supabase';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -163,9 +163,10 @@ export async function signInWithOAuthProvider(provider: SocialAuthProvider): Pro
 export async function signOut(): Promise<void> {
   if (!isSupabaseConfigured) return;
 
-  const { error } = await supabase.auth.signOut({ scope: 'local' });
-  if (error) {
-    throw error;
+  try {
+    await supabase.auth.signOut({ scope: 'local' });
+  } finally {
+    await clearSupabaseAuthStorage();
   }
 
   const { session } = await getAuthState();
