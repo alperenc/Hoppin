@@ -8,7 +8,7 @@ import { BeerStyle, LocationHint, PrivacyLevel } from '@/src/types/hoppin';
 import { createCheckin, listVenueOrCityHints, lookupBeerByBarcode } from '@/src/lib/hoppin';
 import { resolveProtectedRoute, shouldRouteErrorToAuth } from '@/src/lib/sessionRouting';
 
-const primaryStyleChoices: BeerStyle[] = ['ipa', 'lager', 'pilsner', 'wheat', 'stout', 'other'];
+const styleChoices: BeerStyle[] = ['ipa', 'lager', 'pilsner', 'wheat', 'stout', 'porter', 'amber', 'sour', 'experimental', 'other'];
 const audienceOptions: Array<{ value: PrivacyLevel; label: string; caption: string }> = [
   { value: 'followers', label: 'Crew', caption: 'Followers see it' },
   { value: 'public', label: 'Open tap', caption: 'Anyone can discover it' },
@@ -41,6 +41,7 @@ function inferBeerStyle(value: string): BeerStyle {
 export default function Checkin() {
   const router = useRouter();
   const beerEditVersion = useRef(0);
+  const locationEditVersion = useRef(0);
   const styleEditedManually = useRef(false);
   const scanLookupInFlight = useRef(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
@@ -90,6 +91,10 @@ export default function Checkin() {
   const markBeerFieldsEdited = () => {
     beerEditVersion.current += 1;
     clearScannedBeerReference();
+  };
+
+  const markLocationFieldsEdited = () => {
+    locationEditVersion.current += 1;
   };
 
   const openScanner = async () => {
@@ -165,6 +170,7 @@ export default function Checkin() {
   };
 
   const applyHint = (hint: LocationHint) => {
+    markLocationFieldsEdited();
     if (hint.venueName) {
       setVenueName(hint.venueName);
       setSelectedVenueProvider(hint.provider);
@@ -189,6 +195,8 @@ export default function Checkin() {
   };
 
   const applyCurrentLocation = useCallback(async (mode: 'manual' | 'silent' = 'manual') => {
+    const locationEditSnapshot = locationEditVersion.current;
+
     try {
       setIsLocating(true);
 
@@ -203,15 +211,21 @@ export default function Checkin() {
           Alert.alert('Location blocked', 'Enable location permissions to use your current city.');
           return;
         }
+        markLocationFieldsEdited();
       }
 
       const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
       const lat = position.coords.latitude;
       const lng = position.coords.longitude;
+
+      const places = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
+      if (mode === 'silent' && locationEditVersion.current !== locationEditSnapshot) {
+        return;
+      }
+
       setLatitude(lat.toFixed(6));
       setLongitude(lng.toFixed(6));
 
-      const places = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
       const first = places?.[0];
       if (first) {
         if (first.city && !city) {
@@ -539,7 +553,7 @@ export default function Checkin() {
           <Text style={styles.typeHint}>{styleEditedManually.current ? 'Picked by you' : 'Inferred from name'}</Text>
         </View>
         <View style={styles.chipRow}>
-          {primaryStyleChoices.map((choice) => (
+          {styleChoices.map((choice) => (
             <TouchableOpacity
               key={choice}
               style={[styles.chip, style === choice ? styles.chipActive : undefined]}
@@ -608,6 +622,7 @@ export default function Checkin() {
           style={styles.input}
           value={venueName}
           onChangeText={(value) => {
+            markLocationFieldsEdited();
             setVenueName(value);
             clearSavedCoordinates();
             clearSelectedVenueReference();
@@ -620,6 +635,7 @@ export default function Checkin() {
             style={[styles.input, styles.inlineInput]}
             value={city}
             onChangeText={(value) => {
+              markLocationFieldsEdited();
               setCity(value);
               clearSavedCoordinates();
               clearSelectedVenueReference();
@@ -631,6 +647,7 @@ export default function Checkin() {
             style={[styles.input, styles.inlineInput]}
             value={country}
             onChangeText={(value) => {
+              markLocationFieldsEdited();
               setCountry(value);
               clearSavedCoordinates();
               clearSelectedVenueReference();
