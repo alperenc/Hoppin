@@ -188,14 +188,21 @@ export default function Passport() {
     return stamps.filter((stamp) => Number.isFinite(stamp.lat) && Number.isFinite(stamp.lng));
   }, [stamps]);
 
+  const visibleMapStamps = useMemo<CityStamp[]>(() => {
+    if (selectedCountry === ALL_COUNTRIES) {
+      return mapReadyStamps;
+    }
+    return mapReadyStamps.filter((stamp) => stamp.country === selectedCountry);
+  }, [mapReadyStamps, selectedCountry]);
+
   const region = useMemo<MapRegion>(() => {
-    const mapPrimary = mapReadyStamps[0];
+    const mapPrimary = visibleMapStamps[0];
     if (!mapPrimary) {
       return DEFAULT_REGION;
     }
 
-    const spanLat = mapReadyStamps.length > 1 ? Math.min(120, Math.max(20, Math.abs(mapPrimary.lat))) : 40;
-    const spanLng = mapReadyStamps.length > 1 ? Math.min(180, Math.max(20, Math.abs(mapPrimary.lng))) : 80;
+    const spanLat = visibleMapStamps.length > 1 ? Math.min(120, Math.max(20, Math.abs(mapPrimary.lat))) : 40;
+    const spanLng = visibleMapStamps.length > 1 ? Math.min(180, Math.max(20, Math.abs(mapPrimary.lng))) : 80;
 
     return {
       latitude: mapPrimary.lat,
@@ -203,7 +210,7 @@ export default function Passport() {
       latitudeDelta: Math.max(20, spanLat),
       longitudeDelta: Math.max(20, spanLng),
     };
-  }, [mapReadyStamps]);
+  }, [visibleMapStamps]);
 
   if (isLoading) {
     return (
@@ -241,6 +248,17 @@ export default function Passport() {
           <Text style={styles.metricValue}>{summary?.checkinsCount ?? 0}</Text>
           <Text style={styles.metricLabel}>Check-ins</Text>
         </View>
+      </View>
+
+      <Text style={styles.sectionTitle}>City map</Text>
+      <View style={[styles.card, styles.mapCard]}>
+        <CityPassportMap
+          cityMapByKey={cityMapByKey}
+          region={region}
+          selectedVisit={selectedVisit}
+          stamps={visibleMapStamps}
+          onSelectVisit={setSelectedVisit}
+        />
       </View>
 
       <Text style={styles.sectionTitle}>Country filters</Text>
@@ -297,17 +315,6 @@ export default function Passport() {
             );
           })
         )}
-      </View>
-
-      <Text style={styles.sectionTitle}>City map</Text>
-      <View style={styles.card}>
-        <CityPassportMap
-          cityMapByKey={cityMapByKey}
-          region={region}
-          selectedVisit={selectedVisit}
-          stamps={mapReadyStamps}
-          onSelectVisit={setSelectedVisit}
-        />
       </View>
 
       <Text style={styles.sectionTitle}>Who checked in here</Text>
@@ -431,6 +438,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 12,
     gap: 8,
+  },
+  mapCard: {
+    padding: 6,
   },
   timelineCard: {
     borderRadius: 10,
