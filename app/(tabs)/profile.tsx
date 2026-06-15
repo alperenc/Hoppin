@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { View, StyleSheet, Text, TouchableOpacity, Alert, Share, TextInput, ScrollView } from 'react-native';
+import { View, StyleSheet, Text, TouchableOpacity, Alert, Share, TextInput, ScrollView, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { getCurrentProfile, getFollowCounts, getPassportSummary, setProfileCreatorRole, updateProfileIdentity } from '@/src/lib/hoppin';
-import { getAuthUserEmail, isAuthAvailable, signOut as signOutUser } from '@/src/lib/auth';
+import { getAuthState, isAuthAvailable, signOut as signOutUser } from '@/src/lib/auth';
 import type { Profile as HoppinProfile } from '@/src/types/hoppin';
 
 export default function Profile() {
@@ -17,39 +17,42 @@ export default function Profile() {
   const [username, setUsername] = useState('');
   const [isEditingIdentity, setIsEditingIdentity] = useState(false);
   const [savingIdentity, setSavingIdentity] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string>();
+  const [isSignedIn, setIsSignedIn] = useState(false);
 
-  useEffect(() => {
-    let mounted = true;
+  const loadProfile = useCallback(async () => {
+    setIsLoading(true);
+    setLoadError(undefined);
 
-    const load = async () => {
+    try {
+      const authState = await getAuthState();
+      setAccountEmail(authState.user?.email ?? undefined);
+      setIsSignedIn(Boolean(authState.session));
+
       const current = await getCurrentProfile();
       const [counts, summary] = await Promise.all([
         getFollowCounts(current.id),
         getPassportSummary(current.id),
       ]);
-      const email = await getAuthUserEmail();
 
-      if (mounted) {
-        setMe(current);
-        setFollowers(counts.followers);
-        setFollowing(counts.following);
-        setCheckins(summary.checkinsCount);
-        setAccountEmail(email);
-        setDisplayName(current.displayName);
-        setUsername(current.username);
-      }
-    };
-
-    load().catch(() => {
-      if (mounted) {
-        Alert.alert('Profile load failed', 'Could not load profile data right now.');
-      }
-    });
-
-    return () => {
-      mounted = false;
-    };
+      setMe(current);
+      setFollowers(counts.followers);
+      setFollowing(counts.following);
+      setCheckins(summary.checkinsCount);
+      setDisplayName(current.displayName);
+      setUsername(current.username);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not load profile data right now.';
+      setLoadError(message);
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void loadProfile();
+  }, [loadProfile]);
 
   const shareProfile = useCallback(async () => {
     if (!me) return;
@@ -99,15 +102,54 @@ export default function Profile() {
     }
   };
 
+  const signOut = async () => {
+    try {
+      await signOutUser();
+      router.replace('/');
+    } catch {
+      Alert.alert('Sign out failed', 'Please try again.');
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator size="large" color="#60a5fa" />
+        <Text style={styles.loadingTitle}>Loading your profile</Text>
+      </View>
+    );
+  }
+
+  if (loadError || !me) {
+    return (
+      <View style={styles.centered}>
+        <Text style={styles.errorTitle}>Could not load your profile</Text>
+        <Text style={styles.errorText}>{loadError ?? 'Profile data was unavailable.'}</Text>
+        <TouchableOpacity style={styles.cta} onPress={loadProfile}>
+          <Text style={styles.ctaText}>Retry</Text>
+        </TouchableOpacity>
+        {isSignedIn ? (
+          <TouchableOpacity style={[styles.cta, styles.secondary]} onPress={signOut}>
+            <Text style={styles.ctaText}>Sign out</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity style={[styles.cta, styles.secondary]} onPress={() => router.replace('/auth')}>
+            <Text style={styles.ctaText}>Sign in</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  }
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
         <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{(me?.displayName ?? 'H').slice(0, 1).toUpperCase()}</Text>
+          <Text style={styles.avatarText}>{me.displayName.slice(0, 1).toUpperCase()}</Text>
         </View>
         <View style={styles.headerCopy}>
-          <Text style={styles.title}>{me?.displayName ?? 'Hoppin profile'}</Text>
-          <Text style={styles.subtitle}>@{me?.username ?? 'loading'} · {me?.isCreator ? 'creator' : 'explorer'}</Text>
+          <Text style={styles.title}>{me.displayName}</Text>
+          <Text style={styles.subtitle}>@{me.username} · {me.isCreator ? 'creator' : 'explorer'}</Text>
         </View>
       </View>
 
@@ -172,8 +214,8 @@ export default function Profile() {
           </View>
         ) : (
           <View style={styles.identitySummary}>
-            <Text style={styles.identityText}>{me?.displayName ?? 'Loading profile'}</Text>
-            <Text style={styles.identityMuted}>@{me?.username ?? 'loading'}</Text>
+            <Text style={styles.identityText}>{me.displayName}</Text>
+            <Text style={styles.identityMuted}>@{me.username}</Text>
           </View>
         )}
       </View>
@@ -187,15 +229,19 @@ export default function Profile() {
         disabled={savingRole}
       >
         <Text style={styles.ctaText}>
-          {savingRole ? 'Saving…' : me?.isCreator ? 'Set as explorer profile' : 'Set as creator profile'}
+          {savingRole ? 'Saving…' : me.isCreator ? 'Set as explorer profile' : 'Set as creator profile'}
         </Text>
       </TouchableOpacity>
       {isAuthAvailable ? (
         <>
           <Text style={styles.emailText}>
-            {accountEmail ? `Synced as ${accountEmail}` : 'Sync enabled, authentication required for shared profile data'}
+            {isSignedIn
+              ? accountEmail
+                ? `Synced as ${accountEmail}`
+                : 'Synced with your Hoppin account'
+              : 'Sign in to sync shared profile data'}
           </Text>
-          {!accountEmail ? (
+          {!isSignedIn ? (
             <TouchableOpacity style={[styles.cta, styles.secondary]} onPress={() => router.replace('/auth')}>
               <Text style={styles.ctaText}>Sign in to sync</Text>
             </TouchableOpacity>
@@ -209,19 +255,9 @@ export default function Profile() {
           </TouchableOpacity>
         </>
       )}
-      {isAuthAvailable && accountEmail ? (
+      {isAuthAvailable && isSignedIn ? (
         <>
-          <TouchableOpacity
-            style={[styles.cta, styles.secondary]}
-            onPress={async () => {
-              try {
-                await signOutUser();
-                router.replace('/');
-              } catch {
-                Alert.alert('Sign out failed', 'Please try again.');
-              }
-            }}
-          >
+          <TouchableOpacity style={[styles.cta, styles.secondary]} onPress={signOut}>
             <Text style={styles.ctaText}>Sign out</Text>
           </TouchableOpacity>
         </>
@@ -231,6 +267,31 @@ export default function Profile() {
 }
 
 const styles = StyleSheet.create({
+  centered: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#071022',
+    padding: 24,
+  },
+  loadingTitle: {
+    color: '#f8fafc',
+    fontSize: 18,
+    fontWeight: '900',
+    marginTop: 12,
+  },
+  errorTitle: {
+    color: '#f8fafc',
+    fontSize: 20,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  errorText: {
+    color: '#94a3b8',
+    lineHeight: 20,
+    marginTop: 8,
+    textAlign: 'center',
+  },
   container: {
     flex: 1,
     backgroundColor: '#071022',
