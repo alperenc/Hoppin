@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Linking, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Beer, Compass, MapPinned, Sparkles, Trophy, UsersRound } from 'lucide-react-native';
 import {
   getCurrentProfile,
@@ -32,9 +32,17 @@ const roleOptions = [
 ] as const;
 
 const formatBeerStyle = (style: string) => style.slice(0, 1).toUpperCase() + style.slice(1);
+const allowedPostOnboardingRoutes = new Set(['/checkin', '/home', '/discover', '/profile', '/passport']);
+
+const normalizeReturnTo = (value: string | string[] | undefined) => {
+  const destination = Array.isArray(value) ? value[0] : value;
+  return destination && allowedPostOnboardingRoutes.has(destination) ? destination : '/home';
+};
 
 export default function Onboarding() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ returnTo?: string | string[] }>();
+  const postOnboardingDestination = normalizeReturnTo(params.returnTo);
   const [me, setMe] = useState<Profile | null>(null);
   const [creators, setCreators] = useState<Profile[]>([]);
   const [followedIds, setFollowedIds] = useState<string[]>([]);
@@ -93,7 +101,7 @@ export default function Onboarding() {
         if (!mounted) return;
 
         if (destination !== '/onboarding') {
-          router.replace(destination);
+          router.replace(destination === '/home' ? postOnboardingDestination : destination);
           return;
         }
 
@@ -128,7 +136,7 @@ export default function Onboarding() {
     return () => {
       mounted = false;
     };
-  }, [attempt, router]);
+  }, [attempt, postOnboardingDestination, router]);
 
   const retryRouteLoad = () => {
     setRouteError(false);
@@ -173,7 +181,7 @@ export default function Onboarding() {
       }
       setMe(nextProfile);
       await markOnboardingComplete(me.id);
-      router.replace('/home');
+      router.replace(postOnboardingDestination);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Please try again in a moment.';
       Alert.alert('Could not continue', message);
