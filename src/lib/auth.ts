@@ -163,9 +163,14 @@ export async function signInWithOAuthProvider(provider: SocialAuthProvider): Pro
 export async function signOut(): Promise<void> {
   if (!isSupabaseConfigured) return;
 
-  const { error } = await supabase.auth.signOut();
+  const { error } = await supabase.auth.signOut({ scope: 'local' });
   if (error) {
     throw error;
+  }
+
+  const { session } = await getAuthState();
+  if (session) {
+    throw new Error('Could not clear the local auth session.');
   }
 }
 
