@@ -34,17 +34,17 @@ const shouldKeepManualStyle = (pickedForName: string, nextName: string) => {
   return pickedFor.includes(next) || next.includes(pickedFor);
 };
 
-function inferBeerStyle(value: string): BeerStyle {
+function inferBeerStyle(value: string): { style: BeerStyle; confident: boolean } {
   const normalized = normalizeBeerNameForStyle(value);
-  if (/\b(ipa|i p a|pale ale|hazy|neipa|double ipa|dip[ao])\b/.test(normalized)) return 'ipa';
-  if (/\b(pils|pilsner)\b/.test(normalized)) return 'pilsner';
-  if (/\b(lager|helles|bock|maerzen|marzen|dunkel|stella|stella artois)\b/.test(normalized)) return 'lager';
-  if (/\b(stout|imperial stout|milk stout|oatmeal stout)\b/.test(normalized)) return 'stout';
-  if (/\b(porter)\b/.test(normalized)) return 'porter';
-  if (/\b(wheat|weiss|weizen|wit|witbier|white|blanche|belgian white|hefe)\b/.test(normalized)) return 'wheat';
-  if (/\b(amber|red ale)\b/.test(normalized)) return 'amber';
-  if (/\b(sour|gose|lambic|berliner)\b/.test(normalized)) return 'sour';
-  return 'other';
+  if (/\b(ipa|i p a|pale ale|hazy|neipa|double ipa|dip[ao])\b/.test(normalized)) return { style: 'ipa', confident: true };
+  if (/\b(pils|pilsner)\b/.test(normalized)) return { style: 'pilsner', confident: true };
+  if (/\b(lager|helles|bock|maerzen|marzen|dunkel)\b/.test(normalized)) return { style: 'lager', confident: true };
+  if (/\b(stout|imperial stout|milk stout|oatmeal stout)\b/.test(normalized)) return { style: 'stout', confident: true };
+  if (/\b(porter)\b/.test(normalized)) return { style: 'porter', confident: true };
+  if (/\b(wheat|weiss|weizen|wit|witbier|white|blanche|belgian white|hefe)\b/.test(normalized)) return { style: 'wheat', confident: true };
+  if (/\b(amber|red ale)\b/.test(normalized)) return { style: 'amber', confident: true };
+  if (/\b(sour|gose|lambic|berliner)\b/.test(normalized)) return { style: 'sour', confident: true };
+  return { style: 'other', confident: false };
 }
 
 export default function Checkin() {
@@ -60,6 +60,7 @@ export default function Checkin() {
   const [breweryName, setBreweryName] = useState('');
   const [privacy, setPrivacy] = useState<PrivacyLevel>('followers');
   const [style, setStyle] = useState<BeerStyle>('other');
+  const [styleInferredConfidently, setStyleInferredConfidently] = useState(false);
   const [venueName, setVenueName] = useState('');
   const [city, setCity] = useState('');
   const [country, setCountry] = useState('');
@@ -165,6 +166,7 @@ export default function Checkin() {
         setScannedBarcodeMatchedBeer(true);
         setBeerName(matchedBeer.name);
         setStyle(matchedBeer.style);
+        setStyleInferredConfidently(true);
         styleEditedManually.current = false;
         stylePickedForBeerName.current = '';
         if (matchedBeer.brewery?.name) {
@@ -174,6 +176,7 @@ export default function Checkin() {
         setBeerName('');
         setBreweryName('');
         setStyle('other');
+        setStyleInferredConfidently(false);
         styleEditedManually.current = false;
         stylePickedForBeerName.current = '';
       }
@@ -183,6 +186,7 @@ export default function Checkin() {
         setBeerName('');
         setBreweryName('');
         setStyle('other');
+        setStyleInferredConfidently(false);
         styleEditedManually.current = false;
         stylePickedForBeerName.current = '';
       }
@@ -581,6 +585,13 @@ export default function Checkin() {
   const trimmedVenueName = venueName.trim();
   const placePreview = city.trim() && country.trim() ? `${city.trim()}, ${country.trim()}` : 'Somewhere worth mapping';
   const audienceLabel = audienceOptions.find((option) => option.value === privacy)?.label ?? 'Crew';
+  const typeHint = styleEditedManually.current
+    ? 'Picked by you'
+    : scannedBarcodeMatchedBeer
+      ? 'Matched from scan'
+    : styleInferredConfidently
+      ? 'Inferred from style words'
+      : 'No confident match';
   const locationStatus = trimmedVenueName && city && country
     ? `${trimmedVenueName} - ${city}, ${country}`
     : city && country
@@ -648,14 +659,16 @@ export default function Checkin() {
             }
             setBeerName(value);
             if (!styleEditedManually.current) {
-              setStyle(inferBeerStyle(value));
+              const inferred = inferBeerStyle(value);
+              setStyle(inferred.style);
+              setStyleInferredConfidently(inferred.confident);
             }
             markBeerFieldsEdited();
           }}
         />
         <View style={styles.typeHeader}>
           <Text style={styles.sectionLabel}>Beer type</Text>
-          <Text style={styles.typeHint}>{styleEditedManually.current ? 'Picked by you' : 'Inferred from name'}</Text>
+          <Text style={styles.typeHint}>{typeHint}</Text>
         </View>
         <View style={styles.chipRow}>
           {styleChoices.map((choice) => (
@@ -665,6 +678,7 @@ export default function Checkin() {
               onPress={() => {
                 styleEditedManually.current = true;
                 stylePickedForBeerName.current = beerName;
+                setStyleInferredConfidently(false);
                 setStyle(choice);
                 if (choice !== style) {
                   markBeerFieldsEdited();
