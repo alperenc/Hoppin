@@ -80,7 +80,10 @@ export default function IndexRoute() {
             Start with one beer, one venue, or one city. Hoppin turns the memory into a passport stamp you can revisit, share, and build into a trail.
           </Text>
           <View style={styles.actionRow}>
-            <TouchableOpacity style={styles.primaryAction} onPress={() => router.push('/auth')}>
+            <TouchableOpacity
+              style={styles.primaryAction}
+              onPress={() => router.push({ pathname: '/auth', params: { returnTo: '/checkin' } })}
+            >
               <Text style={styles.primaryActionText}>Start stamping</Text>
               <ChevronRight color="#052e16" size={18} />
             </TouchableOpacity>

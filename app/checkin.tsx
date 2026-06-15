@@ -312,6 +312,11 @@ export default function Checkin() {
         if (!mounted) return;
 
         if (route.status === 'redirect') {
+          if (route.destination === '/onboarding') {
+            router.replace({ pathname: '/onboarding', params: { returnTo: '/checkin' } });
+            return;
+          }
+
           router.replace(route.destination);
           return;
         }
