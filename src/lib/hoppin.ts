@@ -2036,6 +2036,47 @@ async function fetchGoogleLocationHints(query: string): Promise<LocationHint[]> 
   }
 }
 
+async function fetchGoogleNearbyVenueHints(lat: number, lng: number): Promise<LocationHint[]> {
+  if (typeof fetch !== 'function') {
+    return [];
+  }
+
+  if (!isSupabaseConfigured) {
+    return [];
+  }
+
+  const { data } = await supabase.auth.getSession();
+  const accessToken = data.session?.access_token;
+  if (!accessToken) {
+    return [];
+  }
+
+  const proxyBase = process.env.EXPO_PUBLIC_HOPPIN_PLACES_PROXY_URL?.trim();
+  const params = new URLSearchParams({
+    lat: String(lat),
+    lng: String(lng),
+  });
+  const endpoint = `${proxyBase ? proxyBase.replace(/\/$/, '') : ''}/api/places?${params.toString()}`;
+
+  try {
+    const response = await fetch(endpoint, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+    if (!response.ok) {
+      return [];
+    }
+
+    const payload = (await response.json()) as { hints?: LocationHint[] };
+    return (payload.hints ?? [])
+      .filter((hint) => hint.venueName && hint.city && hint.country && hint.lat !== undefined && hint.lng !== undefined)
+      .slice(0, 5);
+  } catch {
+    return [];
+  }
+}
+
 async function listStoredVenueOrCityHints(query: string): Promise<LocationHint[]> {
   const q = query.trim();
   if (!q) return [];
@@ -2139,6 +2180,14 @@ export async function listVenueOrCityHints(query: string): Promise<LocationHint[
   ]);
 
   return mergeLocationHints(storedHints, googleHints);
+}
+
+export async function listNearbyVenueHints(lat: number, lng: number): Promise<LocationHint[]> {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return [];
+  }
+
+  return fetchGoogleNearbyVenueHints(lat, lng);
 }
 
 function upsertCity(city: string, country: string, lat?: number, lng?: number): CityLocation {

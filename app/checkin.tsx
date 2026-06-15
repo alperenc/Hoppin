@@ -5,7 +5,7 @@ import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TouchableOp
 import { useRouter } from 'expo-router';
 import { Beer, MapPin, ScanBarcode, Sparkles, Star, UsersRound, X } from 'lucide-react-native';
 import { BeerStyle, LocationHint, PrivacyLevel } from '@/src/types/hoppin';
-import { createCheckin, listVenueOrCityHints, lookupBeerByBarcode } from '@/src/lib/hoppin';
+import { createCheckin, listNearbyVenueHints, listVenueOrCityHints, lookupBeerByBarcode } from '@/src/lib/hoppin';
 import { resolveProtectedRoute, shouldRouteErrorToAuth } from '@/src/lib/sessionRouting';
 
 const styleChoices: BeerStyle[] = ['ipa', 'lager', 'pilsner', 'wheat', 'stout', 'porter', 'amber', 'sour', 'experimental', 'other'];
@@ -42,6 +42,7 @@ export default function Checkin() {
   const router = useRouter();
   const beerEditVersion = useRef(0);
   const locationEditVersion = useRef(0);
+  const autoFilledVenue = useRef(false);
   const styleEditedManually = useRef(false);
   const scanLookupInFlight = useRef(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
@@ -93,8 +94,13 @@ export default function Checkin() {
     clearScannedBeerReference();
   };
 
-  const markLocationFieldsEdited = () => {
+  const bumpLocationEditVersion = () => {
     locationEditVersion.current += 1;
+  };
+
+  const markLocationFieldsEdited = () => {
+    autoFilledVenue.current = false;
+    bumpLocationEditVersion();
   };
 
   const openScanner = async () => {
@@ -195,7 +201,7 @@ export default function Checkin() {
   };
 
   const applyCurrentLocation = useCallback(async (mode: 'manual' | 'silent' = 'manual') => {
-    const locationEditSnapshot = locationEditVersion.current;
+    let locationEditSnapshot = locationEditVersion.current;
 
     try {
       setIsLocating(true);
@@ -211,29 +217,67 @@ export default function Checkin() {
           Alert.alert('Location blocked', 'Enable location permissions to use your current city.');
           return;
         }
-        markLocationFieldsEdited();
+        bumpLocationEditVersion();
+        locationEditSnapshot = locationEditVersion.current;
       }
 
       const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
       const lat = position.coords.latitude;
       const lng = position.coords.longitude;
 
-      const places = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
-      if (mode === 'silent' && locationEditVersion.current !== locationEditSnapshot) {
+      if (locationEditVersion.current !== locationEditSnapshot) {
         return;
       }
 
       setLatitude(lat.toFixed(6));
       setLongitude(lng.toFixed(6));
 
-      const first = places?.[0];
-      if (first) {
-        if (first.city && !city) {
-          setCity(first.city);
+      const nearbyHints = await listNearbyVenueHints(lat, lng);
+      if (locationEditVersion.current !== locationEditSnapshot) {
+        return;
+      }
+
+      if (nearbyHints.length) {
+        setLocationHints(nearbyHints);
+      }
+
+      const bestVenue = nearbyHints.find((hint) => hint.venueName && hint.city && hint.country);
+      const shouldApplyBestVenue = !venueName.trim() || autoFilledVenue.current;
+      if (bestVenue && shouldApplyBestVenue) {
+        autoFilledVenue.current = true;
+        setVenueName(bestVenue.venueName ?? '');
+        setSelectedVenueProvider(bestVenue.provider);
+        setSelectedVenueExternalId(bestVenue.externalId);
+        if (bestVenue.city) {
+          setCity(bestVenue.city);
         }
-        if (first.country && !country) {
-          setCountry(first.country);
+        if (bestVenue.country) {
+          setCountry(bestVenue.country);
         }
+        if (bestVenue.lat !== undefined && bestVenue.lng !== undefined) {
+          setLatitude(String(bestVenue.lat));
+          setLongitude(String(bestVenue.lng));
+        }
+        return;
+      }
+
+      try {
+        const places = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
+        if (locationEditVersion.current !== locationEditSnapshot) {
+          return;
+        }
+
+        const first = places?.[0];
+        if (first) {
+          if (first.city && !city) {
+            setCity(first.city);
+          }
+          if (first.country && !country) {
+            setCountry(first.country);
+          }
+        }
+      } catch {
+        // Keep the successful GPS coordinates even when reverse geocoding is unavailable.
       }
     } catch (error) {
       if (mode === 'manual') {
@@ -243,7 +287,7 @@ export default function Checkin() {
     } finally {
       setIsLocating(false);
     }
-  }, [city, country]);
+  }, [city, country, venueName]);
 
   useEffect(() => {
     let mounted = true;
@@ -480,11 +524,15 @@ export default function Checkin() {
     }
   };
 
-  const locationStatus = city && country ? `${city}, ${country}` : 'City and country create the passport stamp';
   const trimmedBeerName = beerName.trim();
   const trimmedVenueName = venueName.trim();
   const placePreview = city.trim() && country.trim() ? `${city.trim()}, ${country.trim()}` : 'Somewhere worth mapping';
   const audienceLabel = audienceOptions.find((option) => option.value === privacy)?.label ?? 'Crew';
+  const locationStatus = trimmedVenueName && city && country
+    ? `${trimmedVenueName} - ${city}, ${country}`
+    : city && country
+      ? `${city}, ${country}`
+      : 'Use location for a best-guess venue, then edit if needed.';
 
   if (routeError) {
     return (
@@ -675,7 +723,7 @@ export default function Checkin() {
           onPress={() => applyCurrentLocation('manual')}
           disabled={isLocating}
         >
-          <Text style={styles.ghostButtonText}>{isLocating ? 'Reading your city...' : 'Use my current city'}</Text>
+          <Text style={styles.ghostButtonText}>{isLocating ? 'Finding nearby places...' : 'Use my current place'}</Text>
         </TouchableOpacity>
       </View>
 

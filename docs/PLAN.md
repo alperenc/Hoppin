@@ -17,7 +17,7 @@
   - Onboarding and profile screens let signed-in users claim and edit their display name and public handle.
 - Location enrichment in check-in:
   - `app/checkin.tsx` now suggests venues/cities from `listVenueOrCityHints()`.
-  - `app/checkin.tsx` can also prefill latitude/longitude and attempt reverse-geocoded city/country from device location.
+  - `app/checkin.tsx` can also prefill latitude/longitude, best-guess a nearby venue, and fall back to reverse-geocoded city/country from device location.
   - Deployed web can merge saved Hoppin places with Google Places suggestions through `/api/places` when `GOOGLE_PLACES_API_KEY` is configured.
 - Beer enrichment in check-in:
   - `app/checkin.tsx` can scan beer can/label barcodes on native builds and reuse existing beer records by barcode.
