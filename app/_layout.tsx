@@ -22,7 +22,7 @@ export default function RootLayout() {
     };
   }, [router]);
 
-  return <Stack screenOptions={{ headerShown: false }} />;
+  return <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#071022' } }} />;
 }
 
 export function AppErrorBoundary() {
