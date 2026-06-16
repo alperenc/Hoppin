@@ -1,6 +1,6 @@
 import { Beer, BeerStyle, Checkin, CityLocation, CityStamp, CityVisit, CityVisitor, Follow, FollowFeedItem, LocationHint, PassportSummary, Profile, CheckinScope, PrivacyLevel, Venue } from '@/src/types/hoppin';
 import { isSupabaseConfigured, supabase } from '@/src/lib/supabase';
-import { resolveCheckinMediaUrls } from '@/src/lib/media';
+import { mapResolvedCheckinMediaUrls, resolveCheckinMediaUrlMap, resolveCheckinMediaUrls } from '@/src/lib/media';
 
 type Id = string;
 
@@ -1648,9 +1648,8 @@ export async function listPublicProfileCheckins(profileId: Id): Promise<Checkin[
   const venueCityMap = new Map<string, DbCity>(venueCityRows.map((city) => [city.id, city]));
   const breweryMap = new Map<string, DbBrewery>(breweryRows.map((brewery) => [brewery.id, brewery]));
 
-  return Promise.all(
-    rows.map(async (row) => mapDbProfileCheckin(row, venueCityMap, breweryMap, await resolveCheckinMediaUrls(row.photo_urls ?? []))),
-  );
+  const mediaUrlsByRef = await resolveCheckinMediaUrlMap(rows.map((row) => row.photo_urls ?? []));
+  return rows.map((row) => mapDbProfileCheckin(row, venueCityMap, breweryMap, mapResolvedCheckinMediaUrls(row.photo_urls ?? [], mediaUrlsByRef)));
 }
 
 export async function followProfile(followerId: Id, followingId: Id): Promise<void> {
@@ -1828,9 +1827,8 @@ export async function listFollowerFeed(viewerId?: Id): Promise<FollowFeedItem[]>
   if (error) throw new Error(error.message);
 
   const rows = data as DbFollowFeedRow[] | null | undefined;
-  return Promise.all(
-    (rows ?? []).map(async (row) => mapDbFollowFeed(row, await resolveCheckinMediaUrls(row.photo_urls ?? []))),
-  );
+  const mediaUrlsByRef = await resolveCheckinMediaUrlMap((rows ?? []).map((row) => row.photo_urls ?? []));
+  return (rows ?? []).map((row) => mapDbFollowFeed(row, mapResolvedCheckinMediaUrls(row.photo_urls ?? [], mediaUrlsByRef)));
 }
 
 export async function listForYouFeed(viewerId?: Id): Promise<FollowFeedItem[]> {
