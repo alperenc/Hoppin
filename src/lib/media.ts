@@ -1,6 +1,7 @@
 import { isSupabaseConfigured, supabase } from '@/src/lib/supabase';
 
-export const HOPPIN_MEDIA_BUCKET = 'hoppin-media';
+export const HOPPIN_AVATARS_BUCKET = 'hoppin-avatars';
+export const HOPPIN_CHECKIN_MEDIA_BUCKET = 'hoppin-checkins';
 
 type UploadMediaOptions = {
   ownerId: string;
@@ -31,13 +32,14 @@ export async function uploadHoppinMediaUri({ ownerId, kind, uri }: UploadMediaOp
     throw new Error('Could not read selected image.');
   }
 
-  const blob = await response.blob();
-  const contentType = blob.type || 'image/jpeg';
+  const contentType = response.headers.get('content-type') ?? 'image/jpeg';
+  const body = await response.arrayBuffer();
   const extension = extensionFor(contentType, trimmedUri);
   const token = Math.random().toString(36).slice(2, 10);
   const path = `${ownerId}/${kind}/${Date.now()}-${token}.${extension}`;
+  const bucket = kind === 'avatars' ? HOPPIN_AVATARS_BUCKET : HOPPIN_CHECKIN_MEDIA_BUCKET;
 
-  const { error } = await supabase.storage.from(HOPPIN_MEDIA_BUCKET).upload(path, blob, {
+  const { error } = await supabase.storage.from(bucket).upload(path, body, {
     cacheControl: '3600',
     contentType,
     upsert: false,
@@ -47,10 +49,45 @@ export async function uploadHoppinMediaUri({ ownerId, kind, uri }: UploadMediaOp
     throw new Error(error.message);
   }
 
-  const { data } = supabase.storage.from(HOPPIN_MEDIA_BUCKET).getPublicUrl(path);
+  if (kind === 'checkins') {
+    return path;
+  }
+
+  const { data } = supabase.storage.from(bucket).getPublicUrl(path);
   if (!data.publicUrl) {
     throw new Error('Could not resolve uploaded image URL.');
   }
 
   return data.publicUrl;
+}
+
+export async function resolveCheckinMediaUrls(media: string[] = []): Promise<string[]> {
+  const refs = media.map((item) => item.trim()).filter(Boolean);
+
+  if (!refs.length || !isSupabaseConfigured) {
+    return refs;
+  }
+
+  const privatePaths = refs.filter((ref) => !isRemoteUrl(ref));
+  if (!privatePaths.length) {
+    return refs;
+  }
+
+  const { data, error } = await supabase.storage
+    .from(HOPPIN_CHECKIN_MEDIA_BUCKET)
+    .createSignedUrls(privatePaths, 60 * 10);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const signedUrlsByPath = new Map(
+    (data ?? [])
+      .filter((item) => item.path && item.signedUrl)
+      .map((item) => [item.path, item.signedUrl]),
+  );
+
+  return refs
+    .map((ref) => (isRemoteUrl(ref) ? ref : signedUrlsByPath.get(ref)))
+    .filter((ref): ref is string => Boolean(ref));
 }

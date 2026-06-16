@@ -1,5 +1,6 @@
 import { Beer, BeerStyle, Checkin, CityLocation, CityStamp, CityVisit, CityVisitor, Follow, FollowFeedItem, LocationHint, PassportSummary, Profile, CheckinScope, PrivacyLevel, Venue } from '@/src/types/hoppin';
 import { isSupabaseConfigured, supabase } from '@/src/lib/supabase';
+import { resolveCheckinMediaUrls } from '@/src/lib/media';
 
 type Id = string;
 
@@ -488,7 +489,7 @@ function toProfile(row: DbProfile): Profile {
   };
 }
 
-function mapDbFollowFeed(row: DbFollowFeedRow): FollowFeedItem {
+function mapDbFollowFeed(row: DbFollowFeedRow, media: string[] = row.photo_urls ?? []): FollowFeedItem {
   const author = {
     id: row.author_profile.id,
     username: row.author_profile.username,
@@ -541,14 +542,19 @@ function mapDbFollowFeed(row: DbFollowFeedRow): FollowFeedItem {
       privacy: row.privacy,
       rating: normalizeRating(row.rating ?? undefined),
       note: row.note ?? undefined,
-      media: row.photo_urls ?? [],
+      media,
     },
     author,
     followed: Boolean(row.is_followed),
   };
 }
 
-function mapDbProfileCheckin(row: DbProfileCheckinRow, venueCityById: Map<string, DbCity>, breweriesById: Map<string, DbBrewery>): Checkin {
+function mapDbProfileCheckin(
+  row: DbProfileCheckinRow,
+  venueCityById: Map<string, DbCity>,
+  breweriesById: Map<string, DbBrewery>,
+  media: string[] = row.photo_urls ?? [],
+): Checkin {
   const cities = Array.isArray(row.cities) ? row.cities[0] : row.cities;
   const venues = Array.isArray(row.venues) ? row.venues[0] : row.venues;
   const beers = Array.isArray(row.beers) ? row.beers[0] : row.beers;
@@ -597,7 +603,7 @@ function mapDbProfileCheckin(row: DbProfileCheckinRow, venueCityById: Map<string
     privacy: row.privacy,
     rating: normalizeRating(toNumber(row.rating)),
     note: row.note ?? undefined,
-    media: row.photo_urls ?? [],
+    media,
   };
 }
 
@@ -1642,7 +1648,9 @@ export async function listPublicProfileCheckins(profileId: Id): Promise<Checkin[
   const venueCityMap = new Map<string, DbCity>(venueCityRows.map((city) => [city.id, city]));
   const breweryMap = new Map<string, DbBrewery>(breweryRows.map((brewery) => [brewery.id, brewery]));
 
-  return rows.map((row) => mapDbProfileCheckin(row, venueCityMap, breweryMap));
+  return Promise.all(
+    rows.map(async (row) => mapDbProfileCheckin(row, venueCityMap, breweryMap, await resolveCheckinMediaUrls(row.photo_urls ?? []))),
+  );
 }
 
 export async function followProfile(followerId: Id, followingId: Id): Promise<void> {
@@ -1818,7 +1826,11 @@ export async function listFollowerFeed(viewerId?: Id): Promise<FollowFeedItem[]>
   });
 
   if (error) throw new Error(error.message);
-  return (data as DbFollowFeedRow[] | null | undefined)?.map(mapDbFollowFeed) ?? [];
+
+  const rows = data as DbFollowFeedRow[] | null | undefined;
+  return Promise.all(
+    (rows ?? []).map(async (row) => mapDbFollowFeed(row, await resolveCheckinMediaUrls(row.photo_urls ?? []))),
+  );
 }
 
 export async function listForYouFeed(viewerId?: Id): Promise<FollowFeedItem[]> {
@@ -2012,7 +2024,7 @@ export async function createCheckin(input: CreateCheckinInput, authorId?: Id): P
     privacy: data.privacy,
     rating: normalizeRating(data.rating ?? undefined),
     note: data.note ?? undefined,
-    media: data.photo_urls ?? [],
+    media: await resolveCheckinMediaUrls(data.photo_urls ?? []),
   };
 }
 

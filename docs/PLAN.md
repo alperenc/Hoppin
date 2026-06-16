@@ -8,7 +8,7 @@
   - Passport summary + city stamps
   - Passport map view using `react-native-maps` on native platforms
 - Passport-stamp composer with inferred venue/city scope, live stamp preview, hidden coordinate capture, collapsed details, privacy, rating, and notes
-  - Optional pour photos upload to Supabase Storage, save through the existing check-in media field, and render in feed/profile surfaces.
+  - Optional pour photos upload to private Supabase Storage, save through the existing check-in media field as object paths, and render through signed URLs in feed/profile surfaces.
   - Local Supabase schema scaffold in `supabase/migrations/0001_hoppin_core.sql`
 - Auth route and session gating:
   - `app/index.tsx` shows a guest passport start screen when Supabase mode is configured but no session exists.

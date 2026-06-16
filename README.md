@@ -15,7 +15,7 @@ The app now includes an influencer-first social model with creator discovery, fo
 - Auth routing: unauthenticated sessions in Supabase builds are sent to `/auth` for Google OAuth or email sign-in/signup, and signed users land in tabs.
 - Check-in now includes venue/city suggestions from local seed data, Supabase hint search, and optional Google Places enrichment through the deployed `/api/places` proxy.
 - Native check-in can scan beer can/label barcodes and dedupe against existing beer records.
-- Profile pictures and check-in photos use the `hoppin-media` Supabase Storage bucket in configured builds.
+- Profile pictures use the public `hoppin-avatars` Supabase Storage bucket; check-in photos use the private `hoppin-checkins` bucket and signed URLs in configured builds.
 
 Implementation plan for full production rollout is tracked in [/docs/PLAN.md](/docs/PLAN.md).
 
