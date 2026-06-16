@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Image as RNImage, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { checkinVisibilityLabel, followProfile, getCurrentProfile, getFollowCounts, getFollowedProfiles, getProfileByUsernameOrId, listPublicProfileCheckins, unfollowProfile } from '@/src/lib/hoppin';
 import { Checkin, Profile } from '@/src/types/hoppin';
@@ -104,10 +104,21 @@ export default function PublicProfile() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>{profile.displayName}</Text>
-      <Text style={styles.subtitle}>
-        @{profile.username} · {profile.isCreator ? 'influencer profile' : 'explorer profile'}
-      </Text>
+      <View style={styles.profileHeader}>
+        <View style={styles.avatar}>
+          {profile.avatarUrl ? (
+            <RNImage source={{ uri: profile.avatarUrl }} style={styles.avatarImage} />
+          ) : (
+            <Text style={styles.avatarText}>{profile.displayName.slice(0, 1).toUpperCase()}</Text>
+          )}
+        </View>
+        <View style={styles.profileCopy}>
+          <Text style={styles.title}>{profile.displayName}</Text>
+          <Text style={styles.subtitle}>
+            @{profile.username} · {profile.isCreator ? 'influencer profile' : 'explorer profile'}
+          </Text>
+        </View>
+      </View>
       <View style={styles.metrics}>
         <Text style={styles.metricLabel}>Followers: {followers}</Text>
         <Text style={styles.metricLabel}>Following: {following}</Text>
@@ -132,6 +143,7 @@ export default function PublicProfile() {
           keyExtractor={(item) => item.id}
           renderItem={({ item: checkin }) => (
             <View style={styles.card}>
+              {checkin.media?.[0] ? <RNImage source={{ uri: checkin.media[0] }} style={styles.checkinPhoto} /> : null}
               <Text style={styles.cardHeader}>{checkin.beer.name}</Text>
               <Text style={styles.cardTag}>
                 {checkin.scope === 'venue' ? 'Venue' : 'City'} · {checkinVisibilityLabel(checkin.privacy)}
@@ -166,6 +178,32 @@ const styles = StyleSheet.create({
     backgroundColor: '#071022',
     padding: 16,
     paddingTop: 48,
+  },
+  profileHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+  },
+  profileCopy: {
+    flex: 1,
+  },
+  avatar: {
+    alignItems: 'center',
+    backgroundColor: '#f59e0b',
+    borderRadius: 8,
+    height: 58,
+    justifyContent: 'center',
+    overflow: 'hidden',
+    width: 58,
+  },
+  avatarImage: {
+    height: '100%',
+    width: '100%',
+  },
+  avatarText: {
+    color: '#111827',
+    fontSize: 24,
+    fontWeight: '900',
   },
   title: {
     color: '#f8fafc',
@@ -214,6 +252,13 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 14,
     marginBottom: 12,
+  },
+  checkinPhoto: {
+    width: '100%',
+    aspectRatio: 1.55,
+    borderRadius: 8,
+    marginBottom: 10,
+    backgroundColor: '#071022',
   },
   cardHeader: {
     color: '#f8fafc',

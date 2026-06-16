@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { FlatList, Image as RNImage, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Link, useFocusEffect } from 'expo-router';
 import { Beer, MapPin, Plus, Sparkles, Star, UsersRound } from 'lucide-react-native';
 import { checkinVisibilityLabel, getCurrentProfile, listForYouFeed } from '@/src/lib/hoppin';
@@ -127,7 +127,11 @@ export default function Home() {
         <View style={styles.cardHeader}>
           <View style={styles.authorRow}>
             <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{author.displayName.slice(0, 1).toUpperCase()}</Text>
+              {author.avatarUrl ? (
+                <RNImage source={{ uri: author.avatarUrl }} style={styles.avatarImage} />
+              ) : (
+                <Text style={styles.avatarText}>{author.displayName.slice(0, 1).toUpperCase()}</Text>
+              )}
             </View>
             <View style={styles.authorCopy}>
               <Text style={styles.authorName}>{author.displayName}</Text>
@@ -139,6 +143,7 @@ export default function Home() {
           </Text>
         </View>
 
+        {checkin.media?.[0] ? <RNImage source={{ uri: checkin.media[0] }} style={styles.checkinPhoto} /> : null}
         <Text style={styles.beerName}>{checkin.beer.name}</Text>
         <View style={styles.metaRow}>
           <Beer color="#f59e0b" size={16} />
@@ -450,6 +455,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#f59e0b',
+    overflow: 'hidden',
+  },
+  avatarImage: {
+    height: '100%',
+    width: '100%',
   },
   avatarText: {
     color: '#111827',
@@ -488,6 +498,12 @@ const styles = StyleSheet.create({
     fontSize: 21,
     lineHeight: 26,
     fontWeight: '900',
+  },
+  checkinPhoto: {
+    width: '100%',
+    aspectRatio: 1.55,
+    borderRadius: 8,
+    backgroundColor: '#071022',
   },
   metaRow: {
     flexDirection: 'row',

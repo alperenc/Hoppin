@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BarcodeScanningResult, CameraView, useCameraPermissions } from 'expo-camera';
+import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, Alert, View, Platform } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, Alert, View, Platform, Image as RNImage } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Beer, MapPin, ScanBarcode, Sparkles, Star, UsersRound, X } from 'lucide-react-native';
+import { Beer, ImagePlus, MapPin, ScanBarcode, Sparkles, Star, UsersRound, X } from 'lucide-react-native';
 import { BeerStyle, LocationHint, PrivacyLevel } from '@/src/types/hoppin';
-import { createCheckin, listNearbyVenueHints, listVenueOrCityHints, lookupBeerByBarcode, lookupBeerByName } from '@/src/lib/hoppin';
+import { createCheckin, getCurrentProfile, listNearbyVenueHints, listVenueOrCityHints, lookupBeerByBarcode, lookupBeerByName } from '@/src/lib/hoppin';
+import { uploadHoppinMediaUri } from '@/src/lib/media';
 import { resolveProtectedRoute, shouldRouteErrorToAuth } from '@/src/lib/sessionRouting';
 
 const styleChoices: BeerStyle[] = ['ipa', 'lager', 'pilsner', 'wheat', 'stout', 'porter', 'amber', 'sour', 'experimental', 'other'];
@@ -89,6 +91,7 @@ export default function Checkin() {
   const [scannedBarcodeMatchedBeer, setScannedBarcodeMatchedBeer] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [isResolvingBarcode, setIsResolvingBarcode] = useState(false);
+  const [photoUris, setPhotoUris] = useState<string[]>([]);
 
   const clearSavedCoordinates = () => {
     setLatitude('');
@@ -147,6 +150,20 @@ export default function Checkin() {
     }
 
     Alert.alert('Camera blocked', 'Enable camera permission to scan a can or label.');
+  };
+
+  const addPourPhoto = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      quality: 0.85,
+    });
+
+    if (result.canceled || !result.assets[0]?.uri) {
+      return;
+    }
+
+    setPhotoUris((current) => [result.assets[0].uri, ...current.filter((uri) => uri !== result.assets[0].uri)].slice(0, 4));
   };
 
   const applyScannedBarcode = async (result: BarcodeScanningResult) => {
@@ -616,6 +633,11 @@ export default function Checkin() {
     }
 
     try {
+      const currentProfile = await getCurrentProfile();
+      const media = await Promise.all(
+        photoUris.map((uri) => uploadHoppinMediaUri({ ownerId: currentProfile.id, kind: 'checkins', uri })),
+      );
+
       await createCheckin({
         beerName,
         style,
@@ -634,7 +656,8 @@ export default function Checkin() {
         country: normalizedCountry,
         venueProvider: hasVenue ? selectedVenueProvider : undefined,
         venueExternalId: hasVenue ? selectedVenueExternalId : undefined,
-      });
+        media,
+      }, currentProfile.id);
       router.replace('/home');
     } catch (error) {
       Alert.alert('Could not stamp this pour', 'Your beer memory could not be saved.');
@@ -705,7 +728,7 @@ export default function Checkin() {
       <View style={styles.panel}>
         <View style={styles.panelHeader}>
           <Beer color="#f59e0b" size={22} />
-          <View>
+          <View style={styles.panelHeaderCopy}>
             <Text style={styles.panelTitle}>1. What are you drinking?</Text>
             <Text style={styles.panelMeta}>We infer the style, but you can override it.</Text>
           </View>
@@ -812,7 +835,7 @@ export default function Checkin() {
       <View style={styles.panel}>
         <View style={styles.panelHeader}>
           <MapPin color="#22c55e" size={22} />
-          <View>
+          <View style={styles.panelHeaderCopy}>
             <Text style={styles.panelTitle}>2. Where did it happen?</Text>
             <Text style={styles.panelMeta}>{locationStatus}</Text>
           </View>
@@ -880,6 +903,35 @@ export default function Checkin() {
         </TouchableOpacity>
       </View>
 
+      <View style={styles.mediaPanel}>
+        <View style={styles.panelHeader}>
+          <ImagePlus color="#7dd3fc" size={22} />
+          <View style={styles.panelHeaderCopy}>
+            <Text style={styles.panelTitle}>Add a pour photo</Text>
+            <Text style={styles.panelMeta}>Optional, but it makes the stamp easier to remember.</Text>
+          </View>
+        </View>
+        {photoUris.length ? (
+          <View style={styles.photoGrid}>
+            {photoUris.map((uri) => (
+              <View style={styles.photoTile} key={uri}>
+                <RNImage source={{ uri }} style={styles.photoThumb} />
+                <TouchableOpacity
+                  accessibilityLabel="Remove pour photo"
+                  style={styles.photoRemove}
+                  onPress={() => setPhotoUris((current) => current.filter((item) => item !== uri))}
+                >
+                  <X color="#f8fafc" size={14} />
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        ) : null}
+        <TouchableOpacity style={styles.photoButton} onPress={addPourPhoto}>
+          <Text style={styles.photoButtonText}>{photoUris.length ? 'Add another photo' : 'Choose photo'}</Text>
+        </TouchableOpacity>
+      </View>
+
       <View style={styles.preview}>
         <View style={styles.previewTop}>
           <Text style={styles.previewKicker}>Stamp preview</Text>
@@ -891,6 +943,7 @@ export default function Checkin() {
           <Text style={styles.previewPlace}>{trimmedVenueName ? `${trimmedVenueName} - ${placePreview}` : placePreview}</Text>
         </View>
         <Text style={styles.previewMeta}>{formatStyle(style)}. {audienceLabel} audience.</Text>
+        {photoUris[0] ? <RNImage source={{ uri: photoUris[0] }} style={styles.previewPhoto} /> : null}
       </View>
 
       <TouchableOpacity style={styles.detailsToggle} onPress={() => setShowDetails((current) => !current)}>
@@ -1108,6 +1161,13 @@ const styles = StyleSheet.create({
     color: '#a7f3d0',
     lineHeight: 20,
   },
+  previewPhoto: {
+    width: '100%',
+    aspectRatio: 1.7,
+    borderRadius: 8,
+    marginTop: 4,
+    backgroundColor: '#071022',
+  },
   panel: {
     backgroundColor: '#111b34',
     borderColor: '#1f3a5f',
@@ -1123,6 +1183,10 @@ const styles = StyleSheet.create({
     gap: 10,
     marginBottom: 2,
   },
+  panelHeaderCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
   panelTitle: {
     color: '#f8fafc',
     fontSize: 17,
@@ -1130,6 +1194,7 @@ const styles = StyleSheet.create({
   },
   panelMeta: {
     color: '#94a3b8',
+    lineHeight: 18,
     marginTop: 2,
   },
   heroInput: {
@@ -1228,10 +1293,11 @@ const styles = StyleSheet.create({
   },
   inlineFields: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
   },
   inlineInput: {
     flex: 1,
+    minWidth: 0,
   },
   typeHeader: {
     alignItems: 'center',
@@ -1278,6 +1344,54 @@ const styles = StyleSheet.create({
   ghostButtonText: {
     color: '#86efac',
     fontWeight: '800',
+  },
+  mediaPanel: {
+    backgroundColor: '#0b1220',
+    borderColor: '#1f3a5f',
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 10,
+    marginBottom: 14,
+    padding: 14,
+  },
+  photoGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  photoTile: {
+    position: 'relative',
+    width: 84,
+    height: 84,
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#020617',
+  },
+  photoThumb: {
+    width: '100%',
+    height: '100%',
+  },
+  photoRemove: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.82)',
+    borderRadius: 999,
+    height: 24,
+    justifyContent: 'center',
+    position: 'absolute',
+    right: 6,
+    top: 6,
+    width: 24,
+  },
+  photoButton: {
+    alignItems: 'center',
+    borderColor: '#38bdf8',
+    borderRadius: 8,
+    borderWidth: 1,
+    padding: 12,
+  },
+  photoButtonText: {
+    color: '#bae6fd',
+    fontWeight: '900',
   },
   detailsToggle: {
     borderWidth: 1,

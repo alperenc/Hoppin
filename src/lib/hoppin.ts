@@ -1,5 +1,6 @@
 import { Beer, BeerStyle, Checkin, CityLocation, CityStamp, CityVisit, CityVisitor, Follow, FollowFeedItem, LocationHint, PassportSummary, Profile, CheckinScope, PrivacyLevel, Venue } from '@/src/types/hoppin';
 import { isSupabaseConfigured, supabase } from '@/src/lib/supabase';
+import { mapResolvedCheckinMediaUrls, resolveCheckinMediaUrlMap, resolveCheckinMediaUrls } from '@/src/lib/media';
 
 type Id = string;
 
@@ -30,6 +31,7 @@ type CreateCheckinInput = {
   style: BeerStyle;
   breweryName?: string;
   barcode?: string;
+  media?: string[];
   scope: CheckinScope;
   privacy: PrivacyLevel;
   note?: string;
@@ -57,6 +59,7 @@ type DbProfile = {
 type UpdateProfileInput = {
   displayName: string;
   username: string;
+  avatarUrl?: string | null;
 };
 
 type DbCity = {
@@ -486,7 +489,7 @@ function toProfile(row: DbProfile): Profile {
   };
 }
 
-function mapDbFollowFeed(row: DbFollowFeedRow): FollowFeedItem {
+function mapDbFollowFeed(row: DbFollowFeedRow, media: string[] = row.photo_urls ?? []): FollowFeedItem {
   const author = {
     id: row.author_profile.id,
     username: row.author_profile.username,
@@ -539,14 +542,19 @@ function mapDbFollowFeed(row: DbFollowFeedRow): FollowFeedItem {
       privacy: row.privacy,
       rating: normalizeRating(row.rating ?? undefined),
       note: row.note ?? undefined,
-      media: row.photo_urls ?? [],
+      media,
     },
     author,
     followed: Boolean(row.is_followed),
   };
 }
 
-function mapDbProfileCheckin(row: DbProfileCheckinRow, venueCityById: Map<string, DbCity>, breweriesById: Map<string, DbBrewery>): Checkin {
+function mapDbProfileCheckin(
+  row: DbProfileCheckinRow,
+  venueCityById: Map<string, DbCity>,
+  breweriesById: Map<string, DbBrewery>,
+  media: string[] = row.photo_urls ?? [],
+): Checkin {
   const cities = Array.isArray(row.cities) ? row.cities[0] : row.cities;
   const venues = Array.isArray(row.venues) ? row.venues[0] : row.venues;
   const beers = Array.isArray(row.beers) ? row.beers[0] : row.beers;
@@ -595,7 +603,7 @@ function mapDbProfileCheckin(row: DbProfileCheckinRow, venueCityById: Map<string
     privacy: row.privacy,
     rating: normalizeRating(toNumber(row.rating)),
     note: row.note ?? undefined,
-    media: row.photo_urls ?? [],
+    media,
   };
 }
 
@@ -810,6 +818,7 @@ export async function updateProfileIdentity(profileId: Id, input: UpdateProfileI
   const resolvedProfileId = await resolveProfileId(profileId);
   const displayName = input.displayName.trim();
   const username = normalizeEditableUsername(input.username);
+  const avatarUrl = input.avatarUrl === undefined ? undefined : (input.avatarUrl ?? '').trim() || null;
 
   if (!displayName) {
     throw new Error('Display name is required.');
@@ -832,6 +841,7 @@ export async function updateProfileIdentity(profileId: Id, input: UpdateProfileI
       ...existing,
       displayName,
       username,
+      ...(avatarUrl !== undefined ? { avatarUrl: avatarUrl ?? undefined } : {}),
     };
     profiles = profiles.map((profile) => (profile.id === resolvedProfileId ? nextProfile : profile));
     return nextProfile;
@@ -841,12 +851,18 @@ export async function updateProfileIdentity(profileId: Id, input: UpdateProfileI
     throw new Error('Profile id is not a valid UUID.');
   }
 
+  const payload: { display_name: string; username: string; avatar_url?: string | null } = {
+    display_name: displayName,
+    username,
+  };
+
+  if (avatarUrl !== undefined) {
+    payload.avatar_url = avatarUrl;
+  }
+
   const { data, error } = await supabase
     .from('profiles')
-    .update({
-      display_name: displayName,
-      username,
-    })
+    .update(payload)
     .eq('id', resolvedProfileId)
     .select('id,username,display_name,avatar_url,is_creator,created_at')
     .single();
@@ -1632,7 +1648,8 @@ export async function listPublicProfileCheckins(profileId: Id): Promise<Checkin[
   const venueCityMap = new Map<string, DbCity>(venueCityRows.map((city) => [city.id, city]));
   const breweryMap = new Map<string, DbBrewery>(breweryRows.map((brewery) => [brewery.id, brewery]));
 
-  return rows.map((row) => mapDbProfileCheckin(row, venueCityMap, breweryMap));
+  const mediaUrlsByRef = await resolveCheckinMediaUrlMap(rows.map((row) => row.photo_urls ?? []));
+  return rows.map((row) => mapDbProfileCheckin(row, venueCityMap, breweryMap, mapResolvedCheckinMediaUrls(row.photo_urls ?? [], mediaUrlsByRef)));
 }
 
 export async function followProfile(followerId: Id, followingId: Id): Promise<void> {
@@ -1808,7 +1825,10 @@ export async function listFollowerFeed(viewerId?: Id): Promise<FollowFeedItem[]>
   });
 
   if (error) throw new Error(error.message);
-  return (data as DbFollowFeedRow[] | null | undefined)?.map(mapDbFollowFeed) ?? [];
+
+  const rows = data as DbFollowFeedRow[] | null | undefined;
+  const mediaUrlsByRef = await resolveCheckinMediaUrlMap((rows ?? []).map((row) => row.photo_urls ?? []));
+  return (rows ?? []).map((row) => mapDbFollowFeed(row, mapResolvedCheckinMediaUrls(row.photo_urls ?? [], mediaUrlsByRef)));
 }
 
 export async function listForYouFeed(viewerId?: Id): Promise<FollowFeedItem[]> {
@@ -1904,6 +1924,7 @@ export async function createCheckin(input: CreateCheckinInput, authorId?: Id): P
 
   const cityLat = input.scope === 'venue' ? input.cityLat : input.lat;
   const cityLng = input.scope === 'venue' ? input.cityLng : input.lng;
+  const media = Array.from(new Set((input.media ?? []).map((item) => item.trim()).filter(Boolean))).slice(0, 4);
 
   if (!useBackend) {
     const city = upsertCity(normalizedCity, normalizedCountry, cityLat, cityLng);
@@ -1917,7 +1938,7 @@ export async function createCheckin(input: CreateCheckinInput, authorId?: Id): P
       privacy: input.privacy,
       note: input.note?.trim() ? input.note.trim() : undefined,
       rating: normalizeRating(input.rating),
-      media: [],
+      media,
       ...(input.scope === 'venue'
         ? {
             venue: upsertVenue(input.venueName!.trim(), city, input.lat, input.lng, input.venueProvider ?? 'user', input.venueExternalId),
@@ -1944,7 +1965,7 @@ export async function createCheckin(input: CreateCheckinInput, authorId?: Id): P
     privacy: input.privacy,
     rating: normalizeRating(input.rating),
     note: input.note?.trim() || null,
-    photo_urls: [],
+    photo_urls: media,
   };
 
   const { data, error } = await supabase
@@ -1954,6 +1975,13 @@ export async function createCheckin(input: CreateCheckinInput, authorId?: Id): P
     .single();
   if (error) {
     throw new Error(error.message);
+  }
+
+  let signedMedia: string[] = [];
+  try {
+    signedMedia = await resolveCheckinMediaUrls(data.photo_urls ?? []);
+  } catch {
+    signedMedia = [];
   }
 
   return {
@@ -2001,7 +2029,7 @@ export async function createCheckin(input: CreateCheckinInput, authorId?: Id): P
     privacy: data.privacy,
     rating: normalizeRating(data.rating ?? undefined),
     note: data.note ?? undefined,
-    media: data.photo_urls ?? [],
+    media: signedMedia,
   };
 }
 
