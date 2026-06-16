@@ -1977,6 +1977,13 @@ export async function createCheckin(input: CreateCheckinInput, authorId?: Id): P
     throw new Error(error.message);
   }
 
+  let signedMedia: string[] = [];
+  try {
+    signedMedia = await resolveCheckinMediaUrls(data.photo_urls ?? []);
+  } catch {
+    signedMedia = [];
+  }
+
   return {
     id: data.id,
     profileId: resolvedAuthorId,
@@ -2022,7 +2029,7 @@ export async function createCheckin(input: CreateCheckinInput, authorId?: Id): P
     privacy: data.privacy,
     rating: normalizeRating(data.rating ?? undefined),
     note: data.note ?? undefined,
-    media: await resolveCheckinMediaUrls(data.photo_urls ?? []),
+    media: signedMedia,
   };
 }
 
