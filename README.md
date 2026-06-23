@@ -30,7 +30,12 @@ Implementation plan for full production rollout is tracked in [/docs/PLAN.md](/d
 2. Set values in `.env.local` from `.env.example`
 3. Start app: `npx expo start`
 
-For deployed web, configure `GOOGLE_PLACES_API_KEY` in Vercel to enable live Google Places suggestions. The Expo client reads suggestions from the same-origin `/api/places` proxy so the Places key does not need to be exposed in the web bundle.
+For deployed web, configure both Google keys in Vercel:
+
+- `GOOGLE_PLACES_API_KEY` enables live Google Places suggestions through the server-side `/api/places` proxy.
+- `EXPO_PUBLIC_GOOGLE_MAPS_WEB_KEY` enables Google Maps JS tiles on the web Passport map.
+
+The Places key stays server-only. The Maps web key is intentionally public, so restrict it in Google Cloud to the Hoppin web domains and the Maps JavaScript API.
 
 ## Google sign-in setup
 
