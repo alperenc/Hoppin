@@ -6,7 +6,7 @@
   - Home tap-trail feed with crew-first ranking, live stamp cards, feed stats, and refresh
   - Discover screen with creator/explorer relationship cards, mutual/follower states, and follow actions
   - Passport summary + city stamps
-  - Passport map view using `react-native-maps` on native platforms
+  - Passport map view using `react-native-maps` on native platforms and Google Maps JS on web
 - Passport-stamp composer with inferred venue/city scope, live stamp preview, hidden coordinate capture, collapsed details, privacy, rating, and notes
   - Optional pour photos upload to private Supabase Storage, save through the existing check-in media field as object paths, and render through signed URLs in feed/profile surfaces.
   - Local Supabase schema scaffold in `supabase/migrations/0001_hoppin_core.sql`
