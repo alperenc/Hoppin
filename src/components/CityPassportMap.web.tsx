@@ -88,12 +88,14 @@ type GoogleMapsWindow = Window & {
   google?: {
     maps?: GoogleMapsNamespace;
   };
+  __hoppinGoogleMapsLoaded?: () => void;
   __hoppinGoogleMapsPromise?: Promise<GoogleMapsNamespace>;
 };
 
 const googleMapsKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_WEB_KEY?.trim();
 const cityKey = (city: string, country: string) => `${city.toLowerCase()}-${country.toLowerCase()}`;
 const scriptId = 'hoppin-google-maps-js';
+const googleMapsCallbackName = '__hoppinGoogleMapsLoaded';
 
 const mapStyles = [
   { elementType: 'geometry', stylers: [{ color: '#0b1220' }] },
@@ -154,19 +156,23 @@ const loadGoogleMaps = () => {
       return;
     }
 
+    targetWindow.__hoppinGoogleMapsLoaded = () => {
+      if (!settleIfReady()) {
+        reject(new Error('Google Maps did not initialize.'));
+      }
+    };
+
     const script =
       existingScript ??
       Object.assign(document.createElement('script'), {
         async: true,
         defer: true,
         id: scriptId,
-        src: `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(googleMapsKey)}&v=weekly`,
+        src: `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(googleMapsKey)}&v=weekly&loading=async&callback=${googleMapsCallbackName}`,
       });
 
     script.addEventListener('load', () => {
-      if (!settleIfReady()) {
-        reject(new Error('Google Maps did not initialize.'));
-      }
+      settleIfReady();
     });
     script.addEventListener('error', () => {
       reject(new Error('Google Maps failed to load.'));
