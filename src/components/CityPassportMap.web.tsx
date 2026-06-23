@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { createElement, type CSSProperties, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { CityStamp, CityVisit } from '@/src/types/hoppin';
 
@@ -96,6 +96,7 @@ const googleMapsKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_WEB_KEY?.trim();
 const cityKey = (city: string, country: string) => `${city.toLowerCase()}-${country.toLowerCase()}`;
 const scriptId = 'hoppin-google-maps-js';
 const googleMapsCallbackName = '__hoppinGoogleMapsLoaded';
+type MapLoadFailure = 'missing-key' | 'script-failed' | 'initialize-failed';
 
 const mapStyles = [
   { elementType: 'geometry', stylers: [{ color: '#0b1220' }] },
@@ -197,7 +198,7 @@ export function CityPassportMap({
   const mapRef = useRef<InstanceType<GoogleMapsNamespace['Map']> | null>(null);
   const markersRef = useRef<Array<InstanceType<GoogleMapsNamespace['Marker']>>>([]);
   const [maps, setMaps] = useState<GoogleMapsNamespace | null>(null);
-  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadFailure, setLoadFailure] = useState<MapLoadFailure | null>(null);
 
   const selectedStamp = useMemo(() => {
     if (!selectedVisit) {
@@ -210,7 +211,7 @@ export function CityPassportMap({
     let mounted = true;
 
     if (!googleMapsKey) {
-      setLoadFailed(true);
+      setLoadFailure('missing-key');
       return;
     }
 
@@ -220,11 +221,11 @@ export function CityPassportMap({
           return;
         }
         setMaps(loadedMaps);
-        setLoadFailed(false);
+        setLoadFailure(null);
       })
       .catch(() => {
         if (mounted) {
-          setLoadFailed(true);
+          setLoadFailure('script-failed');
         }
       });
 
@@ -261,7 +262,7 @@ export function CityPassportMap({
         zoomControlOptions,
       });
     } catch {
-      setLoadFailed(true);
+      setLoadFailure('initialize-failed');
     }
   }, [maps, region.latitude, region.longitude]);
 
@@ -317,13 +318,21 @@ export function CityPassportMap({
     mapRef.current.fitBounds(bounds, 56);
   }, [cityMapByKey, maps, onSelectVisit, region.latitude, region.longitude, selectedVisit, stamps]);
 
-  if (loadFailed || !googleMapsKey) {
+  if (loadFailure || !googleMapsKey) {
+    const failure = loadFailure ?? 'missing-key';
+    const message =
+      failure === 'missing-key'
+        ? 'Set EXPO_PUBLIC_GOOGLE_MAPS_WEB_KEY to render the passport map.'
+        : failure === 'script-failed'
+          ? 'Google Maps could not load in this browser. Check API restrictions or content blockers.'
+          : 'Google Maps loaded, but the web map could not initialize.';
+
     return (
       <View style={styles.map}>
         <View style={styles.emptyState}>
           <Text style={styles.mapKicker}>{stamps.length} city stamps</Text>
           <Text style={styles.mapTitle}>Map unavailable</Text>
-          <Text style={styles.mapMeta}>Set EXPO_PUBLIC_GOOGLE_MAPS_WEB_KEY to render the passport map.</Text>
+          <Text style={styles.mapMeta}>{message}</Text>
         </View>
       </View>
     );
@@ -331,12 +340,12 @@ export function CityPassportMap({
 
   return (
     <View style={styles.map}>
-      <View
-        ref={(element) => {
-          mapElementRef.current = element as unknown as HTMLElement | null;
-        }}
-        style={styles.mapCanvas}
-      />
+      {createElement('div', {
+        ref: (element: HTMLDivElement | null) => {
+          mapElementRef.current = element;
+        },
+        style: styles.mapCanvas as CSSProperties,
+      })}
 
       <View style={styles.mapCopy}>
         <Text style={styles.mapKicker}>{stamps.length} city stamps</Text>
