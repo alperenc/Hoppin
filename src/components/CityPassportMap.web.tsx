@@ -86,7 +86,7 @@ type GoogleMapsNamespace = {
 
 type GoogleMapsWindow = Window & {
   google?: {
-    maps?: GoogleMapsNamespace;
+    maps?: Partial<GoogleMapsNamespace>;
   };
   __hoppinGoogleMapsLoaded?: () => void;
   __hoppinGoogleMapsPromise?: Promise<GoogleMapsNamespace>;
@@ -121,14 +121,31 @@ const resolveVisit = (cityMapByKey: Map<string, CityVisit>, stamp: CityStamp): C
     checkinCount: stamp.count,
   };
 
+const getReadyGoogleMaps = (targetWindow: GoogleMapsWindow): GoogleMapsNamespace | null => {
+  const maps = targetWindow.google?.maps;
+
+  if (
+    maps &&
+    typeof maps.Map === 'function' &&
+    typeof maps.Marker === 'function' &&
+    typeof maps.LatLngBounds === 'function' &&
+    maps.SymbolPath
+  ) {
+    return maps as GoogleMapsNamespace;
+  }
+
+  return null;
+};
+
 const loadGoogleMaps = () => {
   if (!googleMapsKey || typeof window === 'undefined' || typeof document === 'undefined') {
     return Promise.reject(new Error('Google Maps key is not configured.'));
   }
 
   const targetWindow = window as GoogleMapsWindow;
-  if (targetWindow.google?.maps) {
-    return Promise.resolve(targetWindow.google.maps);
+  const readyMaps = getReadyGoogleMaps(targetWindow);
+  if (readyMaps) {
+    return Promise.resolve(readyMaps);
   }
 
   if (targetWindow.__hoppinGoogleMapsPromise) {
@@ -139,10 +156,13 @@ const loadGoogleMaps = () => {
     const existingScript = document.getElementById(scriptId) as HTMLScriptElement | null;
 
     const settleIfReady = () => {
-      if (targetWindow.google?.maps) {
-        resolve(targetWindow.google.maps);
+      const loadedMaps = getReadyGoogleMaps(targetWindow);
+
+      if (loadedMaps) {
+        resolve(loadedMaps);
         return true;
       }
+
       return false;
     };
 
