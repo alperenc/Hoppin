@@ -1,7 +1,8 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Link, useFocusEffect } from 'expo-router';
 import { BadgeCheck, Compass, Sparkles, UserPlus, UsersRound } from 'lucide-react-native';
+import { useWebPullToRefresh } from '@/src/components/useWebPullToRefresh';
 import {
   followProfile,
   getCurrentProfile,
@@ -63,51 +64,62 @@ function PersonCard({ followedIds, followerIds, onToggleFollow, profile }: Perso
 }
 
 export default function Discover() {
+  const isMountedRef = useRef(false);
+  const requestIdRef = useRef(0);
   const [me, setMe] = useState<Profile | null>(null);
   const [people, setPeople] = useState<Profile[]>([]);
   const [followedIds, setFollowedIds] = useState<string[]>([]);
   const [followerIds, setFollowerIds] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [busyProfileId, setBusyProfileId] = useState<string>();
   const [errorMessage, setErrorMessage] = useState<string>();
 
-  const load = useCallback(async () => {
-    const [currentProfile, allProfiles] = await Promise.all([getCurrentProfile(), listProfiles()]);
-    const [followed, followers] = await Promise.all([
-      getFollowedProfiles(currentProfile.id),
-      getFollowers(currentProfile.id),
-    ]);
+  const load = useCallback(async (mode: 'screen' | 'refresh' | 'mutation' = 'screen') => {
+    const requestId = ++requestIdRef.current;
 
-    setMe(currentProfile);
-    setPeople(allProfiles.filter((profile) => profile.id !== currentProfile.id));
-    setFollowedIds(followed.map((profile) => profile.id));
-    setFollowerIds(followers.map((profile) => profile.id));
-    setErrorMessage(undefined);
-    setIsLoading(false);
+    if (mode === 'refresh') {
+      setIsRefreshing(true);
+    }
+
+    try {
+      const [currentProfile, allProfiles] = await Promise.all([getCurrentProfile(), listProfiles()]);
+      const [followed, followers] = await Promise.all([
+        getFollowedProfiles(currentProfile.id),
+        getFollowers(currentProfile.id),
+      ]);
+
+      if (!isMountedRef.current || requestId !== requestIdRef.current) {
+        return;
+      }
+
+      setMe(currentProfile);
+      setPeople(allProfiles.filter((profile) => profile.id !== currentProfile.id));
+      setFollowedIds(followed.map((profile) => profile.id));
+      setFollowerIds(followers.map((profile) => profile.id));
+      setErrorMessage(undefined);
+    } catch {
+      if (isMountedRef.current && requestId === requestIdRef.current) {
+        setErrorMessage('Could not refresh discovery right now.');
+      }
+      if (mode === 'mutation') {
+        throw new Error('Could not refresh discovery right now.');
+      }
+    } finally {
+      if (isMountedRef.current && requestId === requestIdRef.current) {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
+    }
   }, []);
 
   useFocusEffect(
     useCallback(() => {
-      let active = true;
-
-      const refresh = async () => {
-        try {
-          await load();
-        } catch {
-          if (active) {
-            setErrorMessage('Could not refresh discovery right now.');
-          }
-        } finally {
-          if (active) {
-            setIsLoading(false);
-          }
-        }
-      };
-
-      void refresh();
+      isMountedRef.current = true;
+      void load();
 
       return () => {
-        active = false;
+        isMountedRef.current = false;
       };
     }, [load])
   );
@@ -115,10 +127,19 @@ export default function Discover() {
   const creators = useMemo(() => people.filter((profile) => profile.isCreator), [people]);
   const explorers = useMemo(() => people.filter((profile) => !profile.isCreator), [people]);
   const mutualCount = useMemo(() => followedIds.filter((id) => followerIds.includes(id)).length, [followedIds, followerIds]);
+  const refreshDiscover = useCallback(() => {
+    void load('refresh');
+  }, [load]);
+  const { refreshControl, webPullHandlers, webRefreshIndicator } = useWebPullToRefresh({
+    onRefresh: refreshDiscover,
+    refreshing: isRefreshing,
+    tintColor: '#38bdf8',
+  });
 
   const toggleFollow = async (id: string) => {
     if (!me || busyProfileId) return;
 
+    let didUpdateFollow = false;
     try {
       setBusyProfileId(id);
       if (followedIds.includes(id)) {
@@ -126,10 +147,15 @@ export default function Discover() {
       } else {
         await followProfile(me.id, id);
       }
-      await load();
+      didUpdateFollow = true;
+      await load('mutation');
       setErrorMessage(undefined);
     } catch {
-      setErrorMessage('Could not update this follow yet.');
+      setErrorMessage(
+        didUpdateFollow
+          ? 'Follow updated, but discovery could not refresh right now.'
+          : 'Could not update this follow yet.'
+      );
     } finally {
       setBusyProfileId(undefined);
     }
@@ -155,7 +181,13 @@ export default function Discover() {
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      refreshControl={refreshControl}
+      {...webPullHandlers}
+    >
+      {webRefreshIndicator}
       <View style={styles.hero}>
         <View style={styles.kickerRow}>
           <Sparkles color="#facc15" size={16} />

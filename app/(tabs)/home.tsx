@@ -1,7 +1,8 @@
 import { useCallback, useMemo, useState } from 'react';
-import { FlatList, Image as RNImage, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { FlatList, Image as RNImage, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Link, useFocusEffect } from 'expo-router';
 import { Beer, MapPin, Plus, Sparkles, Star, UsersRound } from 'lucide-react-native';
+import { useWebPullToRefresh } from '@/src/components/useWebPullToRefresh';
 import { checkinVisibilityLabel, getCurrentProfile, listForYouFeed } from '@/src/lib/hoppin';
 import { FollowFeedItem, Profile } from '@/src/types/hoppin';
 
@@ -118,6 +119,15 @@ export default function Home() {
     };
   }, [feed]);
 
+  const refreshFeed = useCallback(() => {
+    void load('refresh');
+  }, [load]);
+  const { refreshControl, webPullHandlers, webRefreshIndicator } = useWebPullToRefresh({
+    onRefresh: refreshFeed,
+    refreshing: isRefreshing,
+    tintColor: '#86efac',
+  });
+
   const leadItem = feed[0];
 
   const renderStamp = ({ item }: { item: FollowFeedItem }) => {
@@ -167,6 +177,7 @@ export default function Home() {
 
   const header = (
     <View>
+      {webRefreshIndicator}
       <View style={styles.hero}>
         <View style={styles.kickerRow}>
           <Sparkles color="#facc15" size={16} />
@@ -240,7 +251,8 @@ export default function Home() {
       keyExtractor={(item) => item.checkin.id}
       renderItem={renderStamp}
       ListHeaderComponent={header}
-      refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => load('refresh')} tintColor="#86efac" />}
+      refreshControl={refreshControl}
+      {...webPullHandlers}
       ListEmptyComponent={
         <View style={styles.emptyCard}>
           <Text style={styles.emptyTitle}>No stamps in your trail yet.</Text>

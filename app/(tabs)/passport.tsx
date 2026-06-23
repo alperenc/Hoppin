@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Link } from 'expo-router';
 import { CityPassportMap, MapRegion } from '@/src/components/CityPassportMap';
+import { useWebPullToRefresh } from '@/src/components/useWebPullToRefresh';
 import { CityVisit, CityVisitor, CityStamp, PassportSummary, Profile } from '@/src/types/hoppin';
 import {
   getCurrentProfile,
@@ -44,6 +45,7 @@ const visitRangeLabel = (visit: CityVisit): string => {
 const cityKey = (city: string, country: string) => `${city.toLowerCase()}-${country.toLowerCase()}`;
 
 export default function Passport() {
+  const isMountedRef = useRef(false);
   const [me, setMe] = useState<Profile | null>(null);
   const [summary, setSummary] = useState<PassportSummary | null>(null);
   const [stamps, setStamps] = useState<CityStamp[]>([]);
@@ -53,71 +55,85 @@ export default function Passport() {
   const [selectedVisit, setSelectedVisit] = useState<CityVisit | null>(null);
   const [visitors, setVisitors] = useState<CityVisitor[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoadingVisitors, setIsLoadingVisitors] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string>();
 
-  useEffect(() => {
-    let mounted = true;
-
-    const load = async () => {
+  const loadPassport = useCallback(async (mode: 'initial' | 'refresh' = 'initial') => {
+    if (mode === 'refresh') {
+      setIsRefreshing(true);
+    } else {
       setIsLoading(true);
-      setErrorMessage(undefined);
+    }
+    setErrorMessage(undefined);
 
-      try {
-        const currentProfile = await getCurrentProfile();
-        const [passportSummary, passportStamps, cityTrips] = await Promise.all([
-          getPassportSummary(currentProfile.id),
-          listPassportStamps(currentProfile.id),
-          listCityTrips(currentProfile.id),
-        ]);
+    try {
+      const currentProfile = await getCurrentProfile();
+      const [passportSummary, passportStamps, cityTrips] = await Promise.all([
+        getPassportSummary(currentProfile.id),
+        listPassportStamps(currentProfile.id),
+        listCityTrips(currentProfile.id),
+      ]);
 
-        if (!mounted) {
-          return;
-        }
-
-        const discoveredCountries = Array.from(new Set(cityTrips.map((trip) => trip.country))).sort();
-
-        setMe(currentProfile);
-        setSummary(passportSummary);
-        setStamps(passportStamps);
-        setTrips(cityTrips);
-        setCountries(discoveredCountries);
-
-        const nextSelection = cityTrips[0] ?? null;
-        setSelectedCountry((previous) => {
-          if (previous !== ALL_COUNTRIES && discoveredCountries.includes(previous)) {
-            return previous;
-          }
-          return ALL_COUNTRIES;
-        });
-        setSelectedVisit((previous) => {
-          if (!cityTrips.length) {
-            return null;
-          }
-
-          if (previous && cityTrips.some((trip) => trip.city === previous.city && trip.country === previous.country)) {
-            return previous;
-          }
-
-          return nextSelection;
-        });
-      } catch {
-        if (mounted) {
-          setErrorMessage('Could not load passport data.');
-        }
-      } finally {
-        if (mounted) {
-          setIsLoading(false);
-        }
+      if (!isMountedRef.current) {
+        return;
       }
-    };
 
-    void load();
+      const discoveredCountries = Array.from(new Set(cityTrips.map((trip) => trip.country))).sort();
+
+      setMe(currentProfile);
+      setSummary(passportSummary);
+      setStamps(passportStamps);
+      setTrips(cityTrips);
+      setCountries(discoveredCountries);
+
+      const nextSelection = cityTrips[0] ?? null;
+      setSelectedCountry((previous) => {
+        if (previous !== ALL_COUNTRIES && discoveredCountries.includes(previous)) {
+          return previous;
+        }
+        return ALL_COUNTRIES;
+      });
+      setSelectedVisit((previous) => {
+        if (!cityTrips.length) {
+          return null;
+        }
+
+        if (previous && cityTrips.some((trip) => trip.city === previous.city && trip.country === previous.country)) {
+          return previous;
+        }
+
+        return nextSelection;
+      });
+    } catch {
+      if (isMountedRef.current) {
+        setErrorMessage('Could not load passport data.');
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    void loadPassport();
 
     return () => {
-      mounted = false;
+      isMountedRef.current = false;
     };
-  }, []);
+  }, [loadPassport]);
+
+  const refreshPassport = useCallback(() => {
+    void loadPassport('refresh');
+  }, [loadPassport]);
+  const { refreshControl, webPullHandlers, webRefreshIndicator } = useWebPullToRefresh({
+    onRefresh: refreshPassport,
+    refreshing: isRefreshing,
+    tintColor: '#60a5fa',
+  });
 
   const filteredTrips = useMemo<CityVisit[]>(() => {
     if (selectedCountry === ALL_COUNTRIES) {
@@ -220,7 +236,7 @@ export default function Passport() {
     );
   }
 
-  if (errorMessage) {
+  if (errorMessage && !summary && trips.length === 0 && stamps.length === 0) {
     return (
       <View style={styles.loadingWrap}>
         <Text style={styles.errorText}>{errorMessage}</Text>
@@ -230,10 +246,17 @@ export default function Passport() {
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      refreshControl={refreshControl}
+      {...webPullHandlers}
+    >
+      {webRefreshIndicator}
       <Text style={styles.title}>Passport</Text>
       <Text style={styles.subtitle}>Your country chips, city trips, and social discovery.</Text>
       <Text style={styles.handle}>{me ? me.displayName : 'Unknown'}</Text>
+      {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
 
       <View style={styles.summaryRow}>
         <View style={styles.metricCard}>
