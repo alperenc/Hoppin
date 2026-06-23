@@ -97,18 +97,11 @@ const cityKey = (city: string, country: string) => `${city.toLowerCase()}-${coun
 const scriptId = 'hoppin-google-maps-js';
 const googleMapsCallbackName = '__hoppinGoogleMapsLoaded';
 type MapLoadFailure = 'missing-key' | 'script-failed' | 'initialize-failed';
-
-const mapStyles = [
-  { elementType: 'geometry', stylers: [{ color: '#0b1220' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#cbd5e1' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#020617' }] },
-  { featureType: 'administrative.country', elementType: 'geometry.stroke', stylers: [{ color: '#334155' }] },
-  { featureType: 'landscape', elementType: 'geometry', stylers: [{ color: '#0f172a' }] },
-  { featureType: 'poi', stylers: [{ visibility: 'off' }] },
-  { featureType: 'road', stylers: [{ visibility: 'off' }] },
-  { featureType: 'transit', stylers: [{ visibility: 'off' }] },
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#082f49' }] },
-];
+const mapCanvasStyle: CSSProperties = {
+  height: 258,
+  minHeight: 258,
+  width: '100%',
+};
 
 const markerIcon = (maps: GoogleMapsNamespace, selected: boolean) => ({
   path: maps.SymbolPath.CIRCLE,
@@ -256,12 +249,16 @@ export function CityPassportMap({
           strictBounds: false,
         },
         streetViewControl: false,
-        styles: mapStyles,
         zoom: 2,
         zoomControl: true,
         zoomControlOptions,
       });
-    } catch {
+    } catch (error) {
+      console.error('[Hoppin] Google Maps failed to initialize', {
+        error,
+        hostHeight: mapElementRef.current.clientHeight,
+        hostWidth: mapElementRef.current.clientWidth,
+      });
       setLoadFailure('initialize-failed');
     }
   }, [maps, region.latitude, region.longitude]);
@@ -344,7 +341,7 @@ export function CityPassportMap({
         ref: (element: HTMLDivElement | null) => {
           mapElementRef.current = element;
         },
-        style: styles.mapCanvas as CSSProperties,
+        style: mapCanvasStyle,
       })}
 
       <View style={styles.mapCopy}>
@@ -368,10 +365,6 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: '#071426',
     overflow: 'hidden',
-  },
-  mapCanvas: {
-    height: 258,
-    minHeight: 258,
   },
   emptyState: {
     minHeight: 258,
