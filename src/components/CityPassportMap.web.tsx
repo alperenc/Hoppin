@@ -23,8 +23,8 @@ type GoogleLatLngLiteral = {
 };
 
 type GoogleMapsNamespace = {
-  ControlPosition: {
-    RIGHT_BOTTOM: number;
+  ControlPosition?: {
+    RIGHT_BOTTOM?: number;
   };
   LatLngBounds: new () => {
     extend(position: GoogleLatLngLiteral): void;
@@ -238,26 +238,31 @@ export function CityPassportMap({
       return;
     }
 
-    mapRef.current = new maps.Map(mapElementRef.current, {
-      center: { lat: region.latitude, lng: region.longitude },
-      clickableIcons: false,
-      controlSize: 26,
-      disableDefaultUI: true,
-      fullscreenControl: false,
-      gestureHandling: 'cooperative',
-      mapTypeControl: false,
-      restriction: {
-        latLngBounds: { north: 85, south: -85, east: 180, west: -180 },
-        strictBounds: false,
-      },
-      streetViewControl: false,
-      styles: mapStyles,
-      zoom: 2,
-      zoomControl: true,
-      zoomControlOptions: {
-        position: maps.ControlPosition.RIGHT_BOTTOM,
-      },
-    });
+    const zoomControlPosition = maps.ControlPosition?.RIGHT_BOTTOM;
+    const zoomControlOptions = typeof zoomControlPosition === 'number' ? { position: zoomControlPosition } : undefined;
+
+    try {
+      mapRef.current = new maps.Map(mapElementRef.current, {
+        center: { lat: region.latitude, lng: region.longitude },
+        clickableIcons: false,
+        controlSize: 26,
+        disableDefaultUI: true,
+        fullscreenControl: false,
+        gestureHandling: 'cooperative',
+        mapTypeControl: false,
+        restriction: {
+          latLngBounds: { north: 85, south: -85, east: 180, west: -180 },
+          strictBounds: false,
+        },
+        streetViewControl: false,
+        styles: mapStyles,
+        zoom: 2,
+        zoomControl: true,
+        zoomControlOptions,
+      });
+    } catch {
+      setLoadFailed(true);
+    }
   }, [maps, region.latitude, region.longitude]);
 
   useEffect(() => {

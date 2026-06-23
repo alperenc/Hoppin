@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import { View, StyleSheet, Text, TouchableOpacity, Alert, Share, TextInput, ScrollView, ActivityIndicator, Image as RNImage } from 'react-native';
 import { useRouter } from 'expo-router';
 import { ImagePlus, X } from 'lucide-react-native';
+import { useWebPullToRefresh } from '@/src/components/useWebPullToRefresh';
 import { getCurrentProfile, getFollowCounts, getPassportSummary, setProfileCreatorRole, updateProfileIdentity } from '@/src/lib/hoppin';
 import { getAuthState, isAuthAvailable, signOut as signOutUser } from '@/src/lib/auth';
 import { uploadHoppinMediaUri } from '@/src/lib/media';
@@ -10,6 +11,7 @@ import type { Profile as HoppinProfile } from '@/src/types/hoppin';
 
 export default function Profile() {
   const router = useRouter();
+  const isMountedRef = useRef(false);
   const [me, setMe] = useState<HoppinProfile | null>(null);
   const [followers, setFollowers] = useState(0);
   const [following, setFollowing] = useState(0);
@@ -22,24 +24,35 @@ export default function Profile() {
   const [isEditingIdentity, setIsEditingIdentity] = useState(false);
   const [savingIdentity, setSavingIdentity] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string>();
   const [isSignedIn, setIsSignedIn] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
 
-  const loadProfile = useCallback(async () => {
-    setIsLoading(true);
+  const loadProfile = useCallback(async (mode: 'initial' | 'refresh' = 'initial') => {
+    if (mode === 'refresh') {
+      setIsRefreshing(true);
+    } else {
+      setIsLoading(true);
+    }
     setLoadError(undefined);
 
     try {
       const authState = await getAuthState();
-      setAccountEmail(authState.user?.email ?? undefined);
-      setIsSignedIn(Boolean(authState.session));
+      if (isMountedRef.current) {
+        setAccountEmail(authState.user?.email ?? undefined);
+        setIsSignedIn(Boolean(authState.session));
+      }
 
       const current = await getCurrentProfile();
       const [counts, summary] = await Promise.all([
         getFollowCounts(current.id),
         getPassportSummary(current.id),
       ]);
+
+      if (!isMountedRef.current) {
+        return;
+      }
 
       setMe(current);
       setFollowers(counts.followers);
@@ -50,15 +63,35 @@ export default function Profile() {
       setAvatarUrl(current.avatarUrl ?? '');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not load profile data right now.';
-      setLoadError(message);
+      if (isMountedRef.current) {
+        setLoadError(message);
+      }
     } finally {
-      setIsLoading(false);
+      if (isMountedRef.current) {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
     }
   }, []);
 
   useEffect(() => {
+    isMountedRef.current = true;
     void loadProfile();
+
+    return () => {
+      isMountedRef.current = false;
+    };
   }, [loadProfile]);
+
+  const refreshProfile = useCallback(() => {
+    void loadProfile('refresh');
+  }, [loadProfile]);
+  const { refreshControl, webPullHandlers, webRefreshIndicator } = useWebPullToRefresh({
+    enabled: !isEditingIdentity,
+    onRefresh: refreshProfile,
+    refreshing: isRefreshing,
+    tintColor: '#60a5fa',
+  });
 
   const shareProfile = useCallback(async () => {
     if (!me) return;
@@ -153,12 +186,12 @@ export default function Profile() {
     );
   }
 
-  if (loadError || !me) {
+  if (!me) {
     return (
       <View style={styles.centered}>
         <Text style={styles.errorTitle}>Could not load your profile</Text>
         <Text style={styles.errorText}>{loadError ?? 'Profile data was unavailable.'}</Text>
-        <TouchableOpacity style={styles.cta} onPress={loadProfile}>
+        <TouchableOpacity style={styles.cta} onPress={() => void loadProfile()}>
           <Text style={styles.ctaText}>Retry</Text>
         </TouchableOpacity>
         {isSignedIn ? (
@@ -184,7 +217,13 @@ export default function Profile() {
   const canSaveIdentity = Boolean(normalizedDisplayName && normalizedUsername && hasIdentityChanges && !savingIdentity);
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      refreshControl={refreshControl}
+      {...webPullHandlers}
+    >
+      {webRefreshIndicator}
       <View style={styles.header}>
         <View style={styles.avatar}>
           {me.avatarUrl ? (
@@ -213,6 +252,7 @@ export default function Profile() {
           <Text style={styles.metricLabel}>Followers</Text>
         </View>
       </View>
+      {loadError ? <Text style={styles.errorText}>{loadError}</Text> : null}
 
       <View style={styles.panel}>
         <View style={styles.panelHeader}>
