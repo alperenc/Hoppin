@@ -215,6 +215,7 @@ export default function Passport() {
     if (!me) return;
     try {
       const trail = await createTrailFromCityVisit(me.id, trip.city, trip.country);
+      setSavedTrails((current) => [trail, ...current.filter((savedTrail) => savedTrail.id !== trail.id)]);
       router.push(`/trail/${trail.id}`);
     } catch {
       Alert.alert('Trail not saved', 'Could not save this passport suggestion as a trail.');

@@ -1999,7 +1999,7 @@ async function mapDbTrailsWithItems(rows: DbTrailRow[]): Promise<Trail[]> {
   return rows.map((row) => mapDbTrail(row, itemsByTrail.get(row.id) ?? []));
 }
 
-async function buildDbTrailItemPayload(trail: Trail, input: CreateTrailItemInput): Promise<{
+async function buildDbTrailItemPayload(trail: Trail, input: CreateTrailItemInput, checkinsById?: Map<Id, Checkin>): Promise<{
   trail_id: string;
   position: number;
   item_type: 'checkin' | 'place';
@@ -2012,7 +2012,7 @@ async function buildDbTrailItemPayload(trail: Trail, input: CreateTrailItemInput
   const position = nextTrailItemPosition(trail, input.position);
 
   if (input.kind === 'checkin') {
-    const matchingCheckin = (await listCheckinsByIds([input.checkinId]))[0];
+    const matchingCheckin = checkinsById?.get(input.checkinId) ?? (await listCheckinsByIds([input.checkinId]))[0];
     if (!matchingCheckin || matchingCheckin.profileId !== trail.profileId) {
       throw new Error('Only your own stamps can be added to this trail.');
     }
@@ -2216,8 +2216,22 @@ export async function createTrail(input: CreateTrailInput): Promise<Trail> {
 
   let trail = mapDbTrail(data as DbTrailRow);
   try {
-    for (const item of input.items ?? []) {
-      await addTrailItem(trail.id, item);
+    const initialItems = input.items ?? [];
+    if (initialItems.length) {
+      const checkinIds = initialItems
+        .filter((item): item is Extract<CreateTrailItemInput, { kind: 'checkin' }> => item.kind === 'checkin')
+        .map((item) => item.checkinId);
+      const checkinsById = new Map((await listCheckinsByIds(checkinIds)).map((checkin) => [checkin.id, checkin]));
+      const payloads = [];
+
+      for (let index = 0; index < initialItems.length; index += 1) {
+        const item = initialItems[index]!;
+        payloads.push(await buildDbTrailItemPayload(trail, { ...item, position: item.position ?? index }, checkinsById));
+      }
+
+      const { error: itemsError } = await supabase.from('trail_items').insert(payloads);
+      if (itemsError) throw new Error(itemsError.message);
+      await supabase.from('trails').update({ updated_at: now() }).eq('id', trail.id);
       const refreshed = await getTrail(trail.id, profileId);
       if (refreshed) trail = refreshed;
     }

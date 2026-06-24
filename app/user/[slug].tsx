@@ -79,9 +79,11 @@ export default function PublicProfile() {
         getFollowCounts(profile.id),
         getFollowedProfiles(me.id),
       ]);
+      const updatedTrails = await listProfileTrails(profile.id, me.id);
       if (isMounted.current) {
         setFollowers(updatedCounts.followers);
         setFollowing(updatedCounts.following);
+        setTrails(updatedTrails);
         setIsFollowingProfile(followed.some((entry) => entry.id === profile.id));
       }
     } catch {
