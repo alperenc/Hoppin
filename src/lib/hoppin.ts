@@ -1,4 +1,4 @@
-import { Beer, BeerStyle, Checkin, CityLocation, CityStamp, CityVisit, CityVisitor, Follow, FollowFeedItem, LocationHint, PassportSummary, Profile, CheckinScope, PrivacyLevel, Venue } from '@/src/types/hoppin';
+import { Beer, BeerStyle, Checkin, CityLocation, CityStamp, CityVisit, CityVisitor, CreateTrailInput, CreateTrailItemInput, Follow, FollowFeedItem, LocationHint, PassportSummary, Profile, CheckinScope, PrivacyLevel, Trail, TrailItem, UpdateTrailInput, Venue } from '@/src/types/hoppin';
 import { isSupabaseConfigured, supabase } from '@/src/lib/supabase';
 import { mapResolvedCheckinMediaUrls, resolveCheckinMediaUrlMap, resolveCheckinMediaUrls } from '@/src/lib/media';
 
@@ -211,6 +211,102 @@ type DbCityStamp = {
   last_visited_at: string;
 };
 
+type DbTrailProfile = {
+  id: string;
+  username: string;
+  display_name: string;
+  avatar_url: string | null;
+  is_creator: boolean;
+  created_at: string;
+};
+
+type DbTrailRow = {
+  id: string;
+  profile_id: string;
+  title: string;
+  description: string | null;
+  privacy: PrivacyLevel;
+  cover_image: string | null;
+  created_at: string;
+  updated_at: string;
+  profiles?: DbTrailProfile[] | DbTrailProfile | null;
+};
+
+type DbTrailItemCity = {
+  city: string | null;
+  country: string | null;
+  latitude: number | string | null;
+  longitude: number | string | null;
+};
+
+type DbTrailItemVenue = {
+  id: string;
+  name: string;
+  country: string | null;
+  place_provider?: Venue['provider'] | null;
+  provider_place_id?: string | null;
+  latitude: number | string | null;
+  longitude: number | string | null;
+  city?: {
+    city: string | null;
+    country: string | null;
+  } | { city: string | null; country: string | null }[] | null;
+};
+
+type DbTrailItemRow = {
+  id: string;
+  trail_id: string;
+  item_type: 'checkin' | 'place';
+  position: number | string;
+  checkin_id: string | null;
+  venue_id: string | null;
+  city_id: string | null;
+  title: string | null;
+  note: string | null;
+  checkin_beer_name: string | null;
+  checkin_beer_style: BeerStyle | null;
+  checkin_location_name: string | null;
+  checkin_city: string | null;
+  checkin_country: string | null;
+  checkin_checked_at: string | null;
+  created_at: string;
+  cities?: DbTrailItemCity[] | DbTrailItemCity | null;
+  venues?: DbTrailItemVenue[] | DbTrailItemVenue | null;
+};
+
+const trailSelect = `
+  id,
+  profile_id,
+  title,
+  description,
+  privacy,
+  cover_image,
+  created_at,
+  updated_at,
+  profiles(id,username,display_name,avatar_url,is_creator,created_at)
+`;
+
+const trailItemSelect = `
+  id,
+  trail_id,
+  item_type,
+  position,
+  checkin_id,
+  venue_id,
+  city_id,
+  title,
+  note,
+  checkin_beer_name,
+  checkin_beer_style,
+  checkin_location_name,
+  checkin_city,
+  checkin_country,
+  checkin_checked_at,
+  created_at,
+  cities(city,country,latitude,longitude),
+  venues(id,name,country,place_provider,provider_place_id,latitude,longitude,city:city_id(city,country))
+`;
+
 const now = () => new Date().toISOString();
 
 const profilesSeed: Profile[] = [
@@ -339,6 +435,33 @@ let checkins: Checkin[] = [
     rating: 5,
     note: 'Late-night trip memory.',
     media: [],
+  },
+];
+
+let trails: Trail[] = [
+  {
+    id: 'trail_1',
+    profileId: profilesSeed[0].id,
+    title: 'Berlin dark beers',
+    description: 'A short saved route from passport stamps.',
+    privacy: 'public',
+    coverImage: undefined,
+    createdAt: '2026-05-11T22:00:00Z',
+    updatedAt: '2026-05-11T22:00:00Z',
+    owner: profilesSeed[0],
+    author: profilesSeed[0],
+    items: [
+      {
+        id: 'trail_item_1',
+        trailId: 'trail_1',
+        kind: 'checkin',
+        position: 0,
+        checkinId: 'checkin_2',
+        checkin: checkins[1],
+        createdAt: '2026-05-11T22:00:00Z',
+      },
+    ],
+    itemCount: 1,
   },
 ];
 
@@ -485,6 +608,115 @@ function toProfile(row: DbProfile): Profile {
     displayName: row.display_name,
     avatarUrl: row.avatar_url ?? undefined,
     isCreator: row.is_creator,
+    createdAt: row.created_at,
+  };
+}
+
+function firstOrSingle<T>(value?: T | T[] | null): T | undefined {
+  if (Array.isArray(value)) {
+    return value[0];
+  }
+
+  return value ?? undefined;
+}
+
+function toTrailProfile(row?: DbTrailProfile[] | DbTrailProfile | null): Profile | undefined {
+  const profile = firstOrSingle(row);
+  return profile ? toProfile(profile) : undefined;
+}
+
+function cloneTrail(trail: Trail): Trail {
+  const author = profiles.find((profile) => profile.id === trail.profileId) ?? trail.author;
+  const items = trail.items
+    .map((item) => ({
+      ...item,
+      checkin: item.checkinId ? checkins.find((checkin) => checkin.id === item.checkinId) : item.checkin,
+    }))
+    .sort((a, b) => a.position - b.position);
+
+  return {
+    ...trail,
+    owner: author,
+    author,
+    items,
+    itemCount: items.length,
+  };
+}
+
+function canViewTrail(trail: Trail, viewerId?: Id): boolean {
+  if (trail.profileId === viewerId) return true;
+  if (trail.privacy === 'public') return true;
+  if (trail.privacy === 'followers' && viewerId) {
+    return follows.some((follow) => follow.followerId === viewerId && follow.followingId === trail.profileId);
+  }
+
+  return false;
+}
+
+function mapDbTrail(row: DbTrailRow, items: TrailItem[] = []): Trail {
+  const sortedItems = [...items].sort((a, b) => a.position - b.position);
+  return {
+    id: row.id,
+    profileId: row.profile_id,
+    title: row.title,
+    description: row.description ?? undefined,
+    privacy: row.privacy,
+    coverImage: row.cover_image ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    owner: toTrailProfile(row.profiles),
+    author: toTrailProfile(row.profiles),
+    items: sortedItems,
+    itemCount: sortedItems.length,
+  };
+}
+
+function mapDbTrailItem(row: DbTrailItemRow, checkinsById: Map<string, Checkin>): TrailItem {
+  const cityRow = firstOrSingle(row.cities);
+  const venueRow = firstOrSingle(row.venues);
+  const venueCity = firstOrSingle(venueRow?.city);
+  const city = cityRow?.city
+    ? {
+        city: cityRow.city,
+        country: cityRow.country ?? 'Unknown',
+        lat: toNumber(cityRow.latitude) ?? 0,
+        lng: toNumber(cityRow.longitude) ?? 0,
+      }
+    : undefined;
+  const snapshotCity = !city && row.checkin_city
+    ? {
+        city: row.checkin_city,
+        country: row.checkin_country ?? 'Unknown',
+        lat: 0,
+        lng: 0,
+      }
+    : undefined;
+  const venue = venueRow
+    ? {
+        id: venueRow.id,
+        name: venueRow.name,
+        city: venueCity?.city ?? city?.city ?? 'Unknown',
+        country: venueRow.country ?? venueCity?.country ?? city?.country ?? 'Unknown',
+        provider: venueRow.place_provider ?? 'user',
+        externalId: venueRow.provider_place_id ?? undefined,
+        lat: toNumber(venueRow.latitude) ?? city?.lat ?? 0,
+        lng: toNumber(venueRow.longitude) ?? city?.lng ?? 0,
+      }
+    : undefined;
+
+  return {
+    id: row.id,
+    trailId: row.trail_id,
+    kind: row.item_type,
+    position: toInt(row.position) ?? 0,
+    checkinId: row.checkin_id ?? undefined,
+    checkin: row.checkin_id ? checkinsById.get(row.checkin_id) : undefined,
+    venue,
+    city: city ?? snapshotCity,
+    title: row.title ?? row.checkin_beer_name ?? row.checkin_location_name ?? undefined,
+    style: row.checkin_beer_style ?? undefined,
+    checkedAt: row.checkin_checked_at ?? undefined,
+    note: row.note ?? undefined,
     createdAt: row.created_at,
   };
 }
@@ -1577,12 +1809,55 @@ export async function listPublicCityVisitors(city: string, country: string, excl
 }
 
 export async function listPublicProfileCheckins(profileId: Id): Promise<Checkin[]> {
+  return listProfileCheckins(profileId, { publicOnly: true });
+}
+
+export async function listProfileCheckins(profileId: Id, options: { publicOnly?: boolean } = {}): Promise<Checkin[]> {
   const resolvedProfileId = await resolveProfileId(profileId);
 
   if (!(await canUseSupabaseBackend())) {
     return checkins
-      .filter((checkin) => checkin.profileId === resolvedProfileId && checkin.privacy === 'public')
+      .filter((checkin) => checkin.profileId === resolvedProfileId && (!options.publicOnly || checkin.privacy === 'public'))
       .sort((a, b) => b.checkedAt.localeCompare(a.checkedAt));
+  }
+
+  let query = supabase
+    .from('checkins')
+    .select(
+      `
+      id,
+      profile_id,
+      scope,
+      privacy,
+      checked_at,
+      rating,
+      note,
+      photo_urls,
+      cities(city,country,latitude,longitude),
+      venues(id,name,country,place_provider,provider_place_id,latitude,longitude,city_id),
+      beers(id,name,style,abv,ibu,barcode,created_by,created_at,brewery_id)
+      `
+    )
+    .eq('profile_id', resolvedProfileId)
+    .order('checked_at', { ascending: false });
+
+  if (options.publicOnly) {
+    query = query.eq('privacy', 'public');
+  }
+
+  const { data, error } = await query;
+
+  if (error) throw new Error(error.message);
+
+  return mapDbProfileCheckinRows((data ?? []) as DbProfileCheckinRow[]);
+}
+
+async function listCheckinsByIds(ids: Id[]): Promise<Checkin[]> {
+  const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
+  if (!uniqueIds.length) return [];
+
+  if (!(await canUseSupabaseBackend())) {
+    return checkins.filter((checkin) => uniqueIds.includes(checkin.id));
   }
 
   const { data, error } = await supabase
@@ -1602,13 +1877,14 @@ export async function listPublicProfileCheckins(profileId: Id): Promise<Checkin[
       beers(id,name,style,abv,ibu,barcode,created_by,created_at,brewery_id)
       `
     )
-    .eq('profile_id', resolvedProfileId)
-    .eq('privacy', 'public')
-    .order('checked_at', { ascending: false });
+    .in('id', uniqueIds);
 
   if (error) throw new Error(error.message);
 
-  const rows = (data ?? []) as DbProfileCheckinRow[];
+  return mapDbProfileCheckinRows((data ?? []) as DbProfileCheckinRow[]);
+}
+
+async function mapDbProfileCheckinRows(rows: DbProfileCheckinRow[]): Promise<Checkin[]> {
   const venueCityIds = Array.from(
     new Set(
       rows
@@ -1650,6 +1926,544 @@ export async function listPublicProfileCheckins(profileId: Id): Promise<Checkin[
 
   const mediaUrlsByRef = await resolveCheckinMediaUrlMap(rows.map((row) => row.photo_urls ?? []));
   return rows.map((row) => mapDbProfileCheckin(row, venueCityMap, breweryMap, mapResolvedCheckinMediaUrls(row.photo_urls ?? [], mediaUrlsByRef)));
+}
+
+function normalizeTrailTitle(title: string): string {
+  const normalized = title.trim();
+  if (!normalized) {
+    throw new Error('Trail title is required.');
+  }
+  return normalized.slice(0, 100);
+}
+
+function nextTrailItemPosition(trail: Trail, requested?: number): number {
+  if (requested !== undefined && Number.isInteger(requested) && requested >= 0) {
+    return requested;
+  }
+
+  const lastPosition = trail.items.reduce((max, item) => Math.max(max, item.position), -1);
+  return lastPosition + 1;
+}
+
+function normalizeTrailItems(items: TrailItem[]): TrailItem[] {
+  return [...items]
+    .sort((a, b) => a.position - b.position)
+    .map((item, index) => ({ ...item, position: index }));
+}
+
+function trailItemFromInput(trail: Trail, input: CreateTrailItemInput): TrailItem {
+  const position = nextTrailItemPosition(trail, input.position);
+
+  if (input.kind === 'checkin') {
+    const checkin = checkins.find((candidate) => candidate.id === input.checkinId);
+    if (!checkin) {
+      throw new Error('Check-in not found.');
+    }
+    if (checkin.profileId !== trail.profileId) {
+      throw new Error('Only your own stamps can be added to this trail.');
+    }
+
+    return {
+      id: `trail_item_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      trailId: trail.id,
+      kind: 'checkin',
+      position,
+      checkinId: checkin.id,
+      checkin,
+      note: input.note?.trim() || undefined,
+      createdAt: now(),
+    };
+  }
+
+  const title = input.title?.trim() || input.venue?.name || input.city?.city || 'Planned stop';
+  return {
+    id: `trail_item_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    trailId: trail.id,
+    kind: 'place',
+    position,
+    venue: input.venue,
+    city: input.city,
+    title,
+    note: input.note?.trim() || undefined,
+    createdAt: now(),
+  };
+}
+
+async function listTrailItemsByTrailIds(trailIds: Id[]): Promise<Map<Id, TrailItem[]>> {
+  const byTrail = new Map<Id, TrailItem[]>();
+  const uniqueTrailIds = Array.from(new Set(trailIds.filter(Boolean)));
+  if (!uniqueTrailIds.length) return byTrail;
+
+  const { data, error } = await supabase
+    .from('trail_items')
+    .select(trailItemSelect)
+    .in('trail_id', uniqueTrailIds)
+    .order('position', { ascending: true });
+
+  if (error) throw new Error(error.message);
+
+  const rows = (data ?? []) as DbTrailItemRow[];
+  const trailCheckins = await listCheckinsByIds(rows.map((row) => row.checkin_id).filter((id): id is string => Boolean(id)));
+  const checkinsById = new Map(trailCheckins.map((checkin) => [checkin.id, checkin]));
+
+  for (const row of rows) {
+    const item = mapDbTrailItem(row, checkinsById);
+    const current = byTrail.get(item.trailId) ?? [];
+    current.push(item);
+    byTrail.set(item.trailId, current);
+  }
+
+  return byTrail;
+}
+
+async function mapDbTrailsWithItems(rows: DbTrailRow[]): Promise<Trail[]> {
+  const itemsByTrail = await listTrailItemsByTrailIds(rows.map((row) => row.id));
+  return rows.map((row) => mapDbTrail(row, itemsByTrail.get(row.id) ?? []));
+}
+
+async function buildDbTrailItemPayload(trail: Trail, input: CreateTrailItemInput, checkinsById?: Map<Id, Checkin>): Promise<{
+  trail_id: string;
+  position: number;
+  item_type: 'checkin' | 'place';
+  checkin_id: string | null;
+  venue_id: string | null;
+  city_id: string | null;
+  title: string | null;
+  note: string | null;
+  checkin_beer_name: string | null;
+  checkin_beer_style: BeerStyle | null;
+  checkin_location_name: string | null;
+  checkin_city: string | null;
+  checkin_country: string | null;
+  checkin_checked_at: string | null;
+}> {
+  const position = nextTrailItemPosition(trail, input.position);
+
+  if (input.kind === 'checkin') {
+    const matchingCheckin = checkinsById?.get(input.checkinId) ?? (await listCheckinsByIds([input.checkinId]))[0];
+    if (!matchingCheckin || matchingCheckin.profileId !== trail.profileId) {
+      throw new Error('Only your own stamps can be added to this trail.');
+    }
+    const checkinCity = matchingCheckin.city ?? (matchingCheckin.venue
+      ? {
+          city: matchingCheckin.venue.city,
+          country: matchingCheckin.venue.country,
+        }
+      : undefined);
+
+    return {
+      trail_id: trail.id,
+      position,
+      item_type: 'checkin',
+      checkin_id: input.checkinId,
+      venue_id: null,
+      city_id: null,
+      title: null,
+      note: input.note?.trim() || null,
+      checkin_beer_name: matchingCheckin.beer.name,
+      checkin_beer_style: matchingCheckin.beer.style,
+      checkin_location_name: matchingCheckin.venue?.name ?? null,
+      checkin_city: checkinCity?.city ?? null,
+      checkin_country: checkinCity?.country ?? null,
+      checkin_checked_at: matchingCheckin.checkedAt,
+    };
+  }
+
+  let cityId: string | null = null;
+  let venueId: string | null = null;
+  const inputCity = input.city ?? (input.venue
+    ? {
+        city: input.venue.city,
+        country: input.venue.country,
+        lat: input.venue.lat,
+        lng: input.venue.lng,
+      }
+    : undefined);
+
+  if (inputCity?.city && inputCity.country && inputCity.lat !== undefined && inputCity.lng !== undefined) {
+    const city = await findOrCreateCity(inputCity.city, inputCity.country, inputCity.lat, inputCity.lng);
+    cityId = city.id;
+
+    if (input.venue) {
+      const venue = await findOrCreateVenue(
+        input.venue.name,
+        city,
+        input.venue.lat,
+        input.venue.lng,
+        input.venue.provider,
+        input.venue.externalId
+      );
+      venueId = venue.id;
+    }
+  }
+
+  const title = input.title?.trim() || input.venue?.name || input.city?.city || 'Planned stop';
+  return {
+    trail_id: trail.id,
+    position,
+    item_type: 'place',
+    checkin_id: null,
+    venue_id: venueId,
+    city_id: cityId,
+    title,
+    note: input.note?.trim() || null,
+    checkin_beer_name: null,
+    checkin_beer_style: null,
+    checkin_location_name: null,
+    checkin_city: null,
+    checkin_country: null,
+    checkin_checked_at: null,
+  };
+}
+
+export async function listMyTrails(profileId?: Id): Promise<Trail[]> {
+  const resolvedProfileId = await resolveProfileId(profileId);
+
+  if (!(await canUseSupabaseBackend())) {
+    return trails
+      .filter((trail) => trail.profileId === resolvedProfileId)
+      .map(cloneTrail)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  const { data, error } = await supabase
+    .from('trails')
+    .select(trailSelect)
+    .eq('profile_id', resolvedProfileId)
+    .order('updated_at', { ascending: false });
+
+  if (error) throw new Error(error.message);
+  return mapDbTrailsWithItems((data ?? []) as DbTrailRow[]);
+}
+
+type DiscoverTrailOptions = {
+  privacy?: 'public' | 'visible';
+  limit?: number;
+};
+
+export async function listDiscoverTrails(viewerId?: Id, options: DiscoverTrailOptions = {}): Promise<Trail[]> {
+  const resolvedViewerId = await resolveProfileId(viewerId);
+  const privacy = options.privacy ?? 'visible';
+  const limit = options.limit ?? 12;
+
+  if (!(await canUseSupabaseBackend())) {
+    return trails
+      .filter((trail) => {
+        if (trail.profileId === resolvedViewerId) return false;
+        if (!canViewTrail(trail, resolvedViewerId)) return false;
+        return privacy === 'public' ? trail.privacy === 'public' : trail.privacy !== 'private';
+      })
+      .map(cloneTrail)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .slice(0, limit);
+  }
+
+  let query = supabase
+    .from('trails')
+    .select(trailSelect)
+    .neq('profile_id', resolvedViewerId)
+    .order('updated_at', { ascending: false })
+    .limit(limit);
+
+  query = privacy === 'public' ? query.eq('privacy', 'public') : query.neq('privacy', 'private');
+
+  const { data, error } = await query;
+
+  if (error) throw new Error(error.message);
+  return mapDbTrailsWithItems((data ?? []) as DbTrailRow[]);
+}
+
+export async function listProfileTrails(profileId: Id, viewerId?: Id): Promise<Trail[]> {
+  const resolvedProfileId = await resolveProfileId(profileId);
+  const resolvedViewerId = viewerId ? await resolveProfileId(viewerId) : await resolveProfileId();
+
+  if (!(await canUseSupabaseBackend())) {
+    return trails
+      .filter((trail) => trail.profileId === resolvedProfileId && canViewTrail(trail, resolvedViewerId))
+      .map(cloneTrail)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  const { data, error } = await supabase
+    .from('trails')
+    .select(trailSelect)
+    .eq('profile_id', resolvedProfileId)
+    .order('updated_at', { ascending: false });
+
+  if (error) throw new Error(error.message);
+  return mapDbTrailsWithItems((data ?? []) as DbTrailRow[]);
+}
+
+export async function getTrail(trailId: Id, viewerId?: Id): Promise<Trail | null> {
+  const resolvedViewerId = viewerId ? await resolveProfileId(viewerId) : await resolveProfileId();
+
+  if (!(await canUseSupabaseBackend())) {
+    const trail = trails.find((candidate) => candidate.id === trailId);
+    if (!trail || !canViewTrail(trail, resolvedViewerId)) return null;
+    return cloneTrail(trail);
+  }
+
+  const { data, error } = await supabase
+    .from('trails')
+    .select(trailSelect)
+    .eq('id', trailId)
+    .maybeSingle();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw new Error(error.message);
+  }
+  if (!data) return null;
+  const [trail] = await mapDbTrailsWithItems([data as DbTrailRow]);
+  return trail ?? null;
+}
+
+export async function createTrail(input: CreateTrailInput): Promise<Trail> {
+  const profileId = await resolveProfileId(input.profileId);
+  const title = normalizeTrailTitle(input.title);
+  const privacy = input.privacy ?? 'private';
+  const description = input.description?.trim() || undefined;
+  const coverImage = input.coverImage?.trim() || undefined;
+
+  if (!(await canUseSupabaseBackend())) {
+    const trail: Trail = {
+      id: `trail_${Date.now()}`,
+      profileId,
+      title,
+      description,
+      privacy,
+      coverImage,
+      createdAt: now(),
+      updatedAt: now(),
+      owner: profiles.find((profile) => profile.id === profileId),
+      author: profiles.find((profile) => profile.id === profileId),
+      items: [],
+      itemCount: 0,
+    };
+    trail.items = normalizeTrailItems((input.items ?? []).map((item) => trailItemFromInput(trail, item)));
+    trail.itemCount = trail.items.length;
+    trails = [trail, ...trails];
+    return cloneTrail(trail);
+  }
+
+  const { data, error } = await supabase
+    .from('trails')
+    .insert({
+      profile_id: profileId,
+      title,
+      description: description ?? null,
+      privacy,
+      cover_image: coverImage ?? null,
+    })
+    .select(trailSelect)
+    .single();
+
+  if (error) throw new Error(error.message);
+
+  let trail = mapDbTrail(data as DbTrailRow);
+  try {
+    const initialItems = input.items ?? [];
+    if (initialItems.length) {
+      const checkinIds = initialItems
+        .filter((item): item is Extract<CreateTrailItemInput, { kind: 'checkin' }> => item.kind === 'checkin')
+        .map((item) => item.checkinId);
+      const checkinsById = new Map((await listCheckinsByIds(checkinIds)).map((checkin) => [checkin.id, checkin]));
+      const payloads = [];
+
+      for (let index = 0; index < initialItems.length; index += 1) {
+        const item = initialItems[index]!;
+        payloads.push(await buildDbTrailItemPayload(trail, { ...item, position: item.position ?? index }, checkinsById));
+      }
+
+      const { error: itemsError } = await supabase.from('trail_items').insert(payloads);
+      if (itemsError) throw new Error(itemsError.message);
+      await supabase.from('trails').update({ updated_at: now() }).eq('id', trail.id);
+      const refreshed = await getTrail(trail.id, profileId);
+      if (refreshed) trail = refreshed;
+    }
+  } catch (error) {
+    await supabase.from('trails').delete().eq('id', trail.id);
+    throw error;
+  }
+
+  return trail;
+}
+
+export async function updateTrail(trailId: Id, input: UpdateTrailInput): Promise<Trail> {
+  const existing = await getTrail(trailId);
+  if (!existing) {
+    throw new Error('Trail not found.');
+  }
+
+  if (!(await canUseSupabaseBackend())) {
+    const nextTrail: Trail = {
+      ...existing,
+      title: input.title !== undefined ? normalizeTrailTitle(input.title) : existing.title,
+      description: input.description === null ? undefined : input.description?.trim() || existing.description,
+      privacy: input.privacy ?? existing.privacy,
+      coverImage: input.coverImage === null ? undefined : input.coverImage?.trim() || existing.coverImage,
+      updatedAt: now(),
+    };
+    trails = trails.map((trail) => (trail.id === trailId ? nextTrail : trail));
+    return cloneTrail(nextTrail);
+  }
+
+  const payload: {
+    title?: string;
+    description?: string | null;
+    privacy?: PrivacyLevel;
+    cover_image?: string | null;
+  } = {};
+  if (input.title !== undefined) payload.title = normalizeTrailTitle(input.title);
+  if (input.description !== undefined) payload.description = input.description?.trim() || null;
+  if (input.privacy !== undefined) payload.privacy = input.privacy;
+  if (input.coverImage !== undefined) payload.cover_image = input.coverImage?.trim() || null;
+
+  const { data, error } = await supabase
+    .from('trails')
+    .update(payload)
+    .eq('id', trailId)
+    .select(trailSelect)
+    .single();
+
+  if (error) throw new Error(error.message);
+  const [trail] = await mapDbTrailsWithItems([data as DbTrailRow]);
+  return trail;
+}
+
+export async function deleteTrail(trailId: Id): Promise<void> {
+  if (!(await canUseSupabaseBackend())) {
+    trails = trails.filter((trail) => trail.id !== trailId);
+    return;
+  }
+
+  const { error } = await supabase.from('trails').delete().eq('id', trailId);
+  if (error) throw new Error(error.message);
+}
+
+export async function addTrailItem(trailId: Id, input: CreateTrailItemInput): Promise<TrailItem> {
+  const trail = await getTrail(trailId);
+  if (!trail) {
+    throw new Error('Trail not found.');
+  }
+
+  if (!(await canUseSupabaseBackend())) {
+    const item = trailItemFromInput(trail, input);
+    const nextItems = normalizeTrailItems([...trail.items, item]);
+    trails = trails.map((candidate) =>
+      candidate.id === trailId
+        ? {
+            ...candidate,
+            items: nextItems,
+            itemCount: nextItems.length,
+            updatedAt: now(),
+          }
+        : candidate
+    );
+    return item;
+  }
+
+  const payload = await buildDbTrailItemPayload(trail, input);
+  const { data, error } = await supabase
+    .from('trail_items')
+    .insert(payload)
+    .select(trailItemSelect)
+    .single();
+  if (error) throw new Error(error.message);
+
+  await supabase.from('trails').update({ updated_at: now() }).eq('id', trailId);
+  const checkinsById = new Map((await listCheckinsByIds(payload.checkin_id ? [payload.checkin_id] : [])).map((checkin) => [checkin.id, checkin]));
+  return mapDbTrailItem(data as DbTrailItemRow, checkinsById);
+}
+
+export async function removeTrailItem(trailId: Id, itemId: Id): Promise<void> {
+  if (!(await canUseSupabaseBackend())) {
+    trails = trails.map((trail) => {
+      if (trail.id !== trailId) return trail;
+      const items = normalizeTrailItems(trail.items.filter((item) => item.id !== itemId));
+      return {
+        ...trail,
+        items,
+        itemCount: items.length,
+        updatedAt: now(),
+      };
+    });
+    return;
+  }
+
+  const { error } = await supabase.from('trail_items').delete().eq('id', itemId).eq('trail_id', trailId);
+  if (error) throw new Error(error.message);
+  const remaining = (await getTrail(trailId))?.items ?? [];
+  await reorderTrailItems(trailId, remaining.map((item) => item.id));
+}
+
+export async function reorderTrailItems(trailId: Id, itemIds: Id[]): Promise<Trail> {
+  const existing = await getTrail(trailId);
+  if (!existing) {
+    throw new Error('Trail not found.');
+  }
+
+  const orderMap = new Map(itemIds.map((id, index) => [id, index]));
+  const nextItems = normalizeTrailItems(
+    [...existing.items].sort((a, b) => {
+      const aIndex = orderMap.get(a.id);
+      const bIndex = orderMap.get(b.id);
+      if (aIndex !== undefined && bIndex !== undefined) return aIndex - bIndex;
+      if (aIndex !== undefined) return -1;
+      if (bIndex !== undefined) return 1;
+      return a.position - b.position;
+    })
+  );
+
+  if (!(await canUseSupabaseBackend())) {
+    trails = trails.map((trail) => (trail.id === trailId ? { ...trail, items: nextItems, updatedAt: now() } : trail));
+    return cloneTrail(trails.find((trail) => trail.id === trailId)!);
+  }
+
+  const { error } = await supabase.rpc('reorder_trail_items', {
+    p_trail_id: trailId,
+    p_item_ids: nextItems.map((item) => item.id),
+  });
+  if (error) throw new Error(error.message);
+
+  const refreshed = await getTrail(trailId);
+  if (!refreshed) throw new Error('Trail not found.');
+  return refreshed;
+}
+
+export async function createTrailFromCityVisit(profileId: Id, city: string, country: string): Promise<Trail> {
+  const resolvedProfileId = await resolveProfileId(profileId);
+  const normalizedCity = city.trim();
+  const normalizedCountry = country.trim();
+  if (!normalizedCity || !normalizedCountry) {
+    throw new Error('City and country are required.');
+  }
+
+  const cityCheckins = (await listProfileCheckins(resolvedProfileId))
+    .filter((checkin) => {
+      const checkinCity = checkin.city ?? (checkin.venue
+        ? {
+            city: checkin.venue.city,
+            country: checkin.venue.country,
+          }
+        : undefined);
+      return checkinCity?.city === normalizedCity && checkinCity.country === normalizedCountry;
+    })
+    .sort((a, b) => b.checkedAt.localeCompare(a.checkedAt));
+
+  return createTrail({
+    profileId: resolvedProfileId,
+    title: `${normalizedCity} beer trail`,
+    description: cityCheckins.length
+      ? `${cityCheckins.length} saved ${cityCheckins.length === 1 ? 'stamp' : 'stamps'} from ${normalizedCity}.`
+      : `A planned beer trail for ${normalizedCity}, ${normalizedCountry}.`,
+    privacy: 'private',
+    items: cityCheckins.map((checkin, index) => ({
+      kind: 'checkin',
+      checkinId: checkin.id,
+      position: index,
+    })),
+  });
 }
 
 export async function followProfile(followerId: Id, followingId: Id): Promise<void> {

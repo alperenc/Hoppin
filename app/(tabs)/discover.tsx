@@ -8,11 +8,12 @@ import {
   getCurrentProfile,
   getFollowedProfiles,
   getFollowers,
+  listDiscoverTrails,
   listForYouFeed,
   listProfiles,
   unfollowProfile,
 } from '@/src/lib/hoppin';
-import { FollowFeedItem, Profile } from '@/src/types/hoppin';
+import { FollowFeedItem, Profile, Trail } from '@/src/types/hoppin';
 
 type PersonCardProps = {
   followedIds: string[];
@@ -86,6 +87,7 @@ export default function Discover() {
   const [me, setMe] = useState<Profile | null>(null);
   const [people, setPeople] = useState<Profile[]>([]);
   const [feed, setFeed] = useState<FollowFeedItem[]>([]);
+  const [trails, setTrails] = useState<Trail[]>([]);
   const [followedIds, setFollowedIds] = useState<string[]>([]);
   const [followerIds, setFollowerIds] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -106,7 +108,10 @@ export default function Discover() {
         getFollowedProfiles(currentProfile.id),
         getFollowers(currentProfile.id),
       ]);
-      const discoveryFeed = await listForYouFeed(currentProfile.id);
+      const [discoveryFeed, discoverTrails] = await Promise.all([
+        listForYouFeed(currentProfile.id),
+        listDiscoverTrails(currentProfile.id, { privacy: 'public', limit: 6 }),
+      ]);
 
       if (!isMountedRef.current || requestId !== requestIdRef.current) {
         return;
@@ -119,6 +124,7 @@ export default function Discover() {
           .filter((item) => item.checkin.profileId !== currentProfile.id && item.checkin.privacy === 'public')
           .slice(0, 6)
       );
+      setTrails(discoverTrails);
       setFollowedIds(followed.map((profile) => profile.id));
       setFollowerIds(followers.map((profile) => profile.id));
       setErrorMessage(undefined);
@@ -268,6 +274,27 @@ export default function Discover() {
         </>
       ) : null}
 
+      {trails.length ? (
+        <>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Public trails</Text>
+            <Text style={styles.sectionMeta}>{trails.length} routes</Text>
+          </View>
+          <View style={styles.trailGrid}>
+            {trails.map((trail) => (
+              <Link href={`/trail/${trail.id}`} key={trail.id} asChild>
+                <TouchableOpacity style={styles.trailCard}>
+                  <Text style={styles.trailAuthor}>{trail.owner?.displayName ?? trail.author?.displayName ?? 'Hoppin creator'}</Text>
+                  <Text style={styles.trailTitle}>{trail.title}</Text>
+                  <Text style={styles.trailMeta}>{trail.itemCount} {trail.itemCount === 1 ? 'stop' : 'stops'}</Text>
+                  {trail.description ? <Text style={styles.trailDescription}>{trail.description}</Text> : null}
+                </TouchableOpacity>
+              </Link>
+            ))}
+          </View>
+        </>
+      ) : null}
+
       {creators.length ? (
         <>
           <View style={styles.sectionHeader}>
@@ -288,7 +315,7 @@ export default function Discover() {
         </>
       ) : null}
 
-      {!people.length && !feed.length ? (
+      {!people.length && !feed.length && !trails.length ? (
         <View style={styles.emptyCard}>
           <Text style={styles.emptyTitle}>No stamps or trails to discover yet.</Text>
           <Text style={styles.emptyText}>Public pours and trail makers will appear here as Hoppin grows.</Text>
@@ -404,6 +431,10 @@ const styles = StyleSheet.create({
     gap: 10,
     marginBottom: 14,
   },
+  trailGrid: {
+    gap: 10,
+    marginBottom: 14,
+  },
   stampCard: {
     borderWidth: 1,
     borderColor: '#1f3a5f',
@@ -434,6 +465,33 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 13,
     lineHeight: 18,
+  },
+  trailCard: {
+    borderWidth: 1,
+    borderColor: '#1f3a5f',
+    borderRadius: 8,
+    backgroundColor: '#0c1a2e',
+    padding: 14,
+    gap: 6,
+  },
+  trailAuthor: {
+    color: '#7dd3fc',
+    fontSize: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  trailTitle: {
+    color: '#f8fafc',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  trailMeta: {
+    color: '#cbd5e1',
+    fontWeight: '800',
+  },
+  trailDescription: {
+    color: '#94a3b8',
+    lineHeight: 20,
   },
   personCard: {
     borderWidth: 1,

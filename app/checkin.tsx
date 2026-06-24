@@ -78,6 +78,7 @@ export default function Checkin() {
   const [cityLongitude, setCityLongitude] = useState('');
   const [rating, setRating] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [savedCheckinId, setSavedCheckinId] = useState<string>();
   const [locationHints, setLocationHints] = useState<LocationHint[]>([]);
   const [isLoadingHints, setIsLoadingHints] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
@@ -638,7 +639,7 @@ export default function Checkin() {
         photoUris.map((uri) => uploadHoppinMediaUri({ ownerId: currentProfile.id, kind: 'checkins', uri })),
       );
 
-      await createCheckin({
+      const savedCheckin = await createCheckin({
         beerName,
         style,
         breweryName,
@@ -658,7 +659,8 @@ export default function Checkin() {
         venueExternalId: hasVenue ? selectedVenueExternalId : undefined,
         media,
       }, currentProfile.id);
-      router.replace('/home');
+      setSavedCheckinId(savedCheckin.id);
+      setIsSaving(false);
     } catch (error) {
       Alert.alert('Could not stamp this pour', 'Your beer memory could not be saved.');
       setIsSaving(false);
@@ -707,6 +709,28 @@ export default function Checkin() {
     return (
       <View style={styles.loadingWrap}>
         <ActivityIndicator size="large" color="#60a5fa" />
+      </View>
+    );
+  }
+
+  if (savedCheckinId) {
+    return (
+      <View style={styles.savedWrap}>
+        <View style={styles.kickerRow}>
+          <Sparkles color="#f59e0b" size={15} />
+          <Text style={styles.kicker}>Stamp saved</Text>
+        </View>
+        <Text style={styles.savedTitle}>Add this pour to a trail?</Text>
+        <Text style={styles.savedText}>Keep it as a single passport stamp, or use it as the first stop in a new private trail.</Text>
+        <TouchableOpacity
+          style={styles.savedPrimary}
+          onPress={() => router.replace({ pathname: '/trail/new', params: { checkinId: savedCheckinId } })}
+        >
+          <Text style={styles.savedPrimaryText}>Add to trail</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.savedSecondary} onPress={() => router.replace('/home')}>
+          <Text style={styles.savedSecondaryText}>Back to Passport</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -1056,6 +1080,47 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#071022',
     padding: 16,
+  },
+  savedWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    backgroundColor: '#071022',
+    padding: 24,
+    gap: 14,
+  },
+  savedTitle: {
+    color: '#f8fafc',
+    fontSize: 30,
+    lineHeight: 36,
+    fontWeight: '900',
+  },
+  savedText: {
+    color: '#94a3b8',
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  savedPrimary: {
+    minHeight: 50,
+    borderRadius: 8,
+    backgroundColor: '#22c55e',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  savedPrimaryText: {
+    color: '#052e16',
+    fontWeight: '900',
+  },
+  savedSecondary: {
+    minHeight: 48,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#334155',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  savedSecondaryText: {
+    color: '#e2e8f0',
+    fontWeight: '900',
   },
   errorTitle: {
     color: '#f8fafc',

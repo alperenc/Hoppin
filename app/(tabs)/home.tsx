@@ -1,18 +1,20 @@
 import { useCallback, useMemo, useState } from 'react';
-import { FlatList, Image as RNImage, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { Link, useFocusEffect } from 'expo-router';
+import { Alert, FlatList, Image as RNImage, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Link, useFocusEffect, useRouter } from 'expo-router';
 import { Beer, Map as MapIcon, MapPin, Plus, Sparkles, Star } from 'lucide-react-native';
 import { PassportMapPanel } from '@/src/components/PassportMapPanel';
 import { useWebPullToRefresh } from '@/src/components/useWebPullToRefresh';
 import {
   checkinVisibilityLabel,
+  createTrailFromCityVisit,
   getCurrentProfile,
   getPassportSummary,
   listCityTrips,
   listForYouFeed,
+  listMyTrails,
   listPassportStamps,
 } from '@/src/lib/hoppin';
-import { CityStamp, CityVisit, FollowFeedItem, PassportSummary, Profile } from '@/src/types/hoppin';
+import { CityStamp, CityVisit, FollowFeedItem, PassportSummary, Profile, Trail } from '@/src/types/hoppin';
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
   month: 'short',
@@ -66,6 +68,10 @@ function sortOwnLatestFeed(items: FollowFeedItem[], profileId: string): FollowFe
 type LeadRecommendation =
   | {
       kind: 'trail';
+      trail: Trail;
+    }
+  | {
+      kind: 'suggestion';
       trip: CityVisit;
     }
   | {
@@ -74,6 +80,7 @@ type LeadRecommendation =
     };
 
 export default function Home() {
+  const router = useRouter();
   const [feed, setFeed] = useState<FollowFeedItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -81,6 +88,7 @@ export default function Home() {
   const [summary, setSummary] = useState<PassportSummary | null>(null);
   const [stamps, setStamps] = useState<CityStamp[]>([]);
   const [trips, setTrips] = useState<CityVisit[]>([]);
+  const [savedTrails, setSavedTrails] = useState<Trail[]>([]);
   const [selectedVisit, setSelectedVisit] = useState<CityVisit | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>();
 
@@ -93,17 +101,19 @@ export default function Home() {
 
     try {
       const profile = await getCurrentProfile();
-      const [nextFeed, passportSummary, passportStamps, cityTrips] = await Promise.all([
+      const [nextFeed, passportSummary, passportStamps, cityTrips, explicitTrails] = await Promise.all([
         listForYouFeed(profile.id),
         getPassportSummary(profile.id),
         listPassportStamps(profile.id),
         listCityTrips(profile.id),
+        listMyTrails(profile.id),
       ]);
       setMe(profile);
       setFeed(sortOwnLatestFeed(nextFeed, profile.id));
       setSummary(passportSummary);
       setStamps(passportStamps);
       setTrips(cityTrips);
+      setSavedTrails(explicitTrails);
       setSelectedVisit((current) => {
         if (current && cityTrips.some((trip) => trip.city === current.city && trip.country === current.country)) {
           return current;
@@ -126,11 +136,12 @@ export default function Home() {
       const refresh = async () => {
         try {
           const profile = await getCurrentProfile();
-          const [nextFeed, passportSummary, passportStamps, cityTrips] = await Promise.all([
+          const [nextFeed, passportSummary, passportStamps, cityTrips, explicitTrails] = await Promise.all([
             listForYouFeed(profile.id),
             getPassportSummary(profile.id),
             listPassportStamps(profile.id),
             listCityTrips(profile.id),
+            listMyTrails(profile.id),
           ]);
           if (!active) return;
           setMe(profile);
@@ -138,6 +149,7 @@ export default function Home() {
           setSummary(passportSummary);
           setStamps(passportStamps);
           setTrips(cityTrips);
+          setSavedTrails(explicitTrails);
           setSelectedVisit((current) => {
             if (current && cityTrips.some((trip) => trip.city === current.city && trip.country === current.country)) {
               return current;
@@ -188,16 +200,30 @@ export default function Home() {
 
   const leadItem = feed[0];
   const leadRecommendation = useMemo<LeadRecommendation | null>(() => {
+    const savedTrail = savedTrails[0];
+    if (savedTrail) {
+      return { kind: 'trail', trail: savedTrail };
+    }
     const trail = trips.find((trip) => trip.checkinCount > 1);
     if (trail) {
-      return { kind: 'trail', trip: trail };
+      return { kind: 'suggestion', trip: trail };
     }
     if (leadItem) {
       return { kind: 'stamp', item: leadItem };
     }
     return null;
-  }, [leadItem, trips]);
-  const userTrails = useMemo(() => trips.slice(0, 3), [trips]);
+  }, [leadItem, savedTrails, trips]);
+  const suggestedTrails = useMemo(() => trips.slice(0, 3), [trips]);
+
+  const saveSuggestedTrail = async (trip: CityVisit) => {
+    if (!me) return;
+    try {
+      const trail = await createTrailFromCityVisit(me.id, trip.city, trip.country);
+      router.push(`/trail/${trail.id}`);
+    } catch {
+      Alert.alert('Trail not saved', 'Could not turn this passport suggestion into a trail.');
+    }
+  };
 
   const renderStamp = ({ item }: { item: FollowFeedItem }) => {
     const { checkin, author } = item;
@@ -301,38 +327,93 @@ export default function Home() {
         <View style={styles.lead}>
           <View style={styles.leadTopRow}>
             <Text style={styles.leadKicker}>Next worth opening</Text>
-            <Text style={styles.leadType}>{leadRecommendation.kind === 'trail' ? 'Trail' : 'Stamp'}</Text>
-          </View>
-          <Text style={styles.leadTitle}>
-            {leadRecommendation.kind === 'trail'
-              ? `${leadRecommendation.trip.city} trail`
-              : leadRecommendation.item.checkin.beer.name}
-          </Text>
-          <Text style={styles.leadMeta}>
-            {leadRecommendation.kind === 'trail'
-              ? `${stampCountLabel(leadRecommendation.trip.checkinCount)} in ${leadRecommendation.trip.country}`
-              : `${locationLabel(leadRecommendation.item)} - ${reasonLabel(leadRecommendation.item, me)}`}
-          </Text>
+            <Text style={styles.leadType}>
+              {leadRecommendation.kind === 'trail' ? 'Trail' : leadRecommendation.kind === 'suggestion' ? 'Idea' : 'Stamp'}
+            </Text>
         </View>
+        <Text style={styles.leadTitle}>
+          {leadRecommendation.kind === 'trail'
+              ? leadRecommendation.trail.title
+              : leadRecommendation.kind === 'suggestion'
+                ? `${leadRecommendation.trip.city} trail idea`
+              : leadRecommendation.item.checkin.beer.name}
+        </Text>
+        <Text style={styles.leadMeta}>
+          {leadRecommendation.kind === 'trail'
+              ? `${leadRecommendation.trail.itemCount} ${leadRecommendation.trail.itemCount === 1 ? 'stop' : 'stops'} - ${checkinVisibilityLabel(leadRecommendation.trail.privacy)}`
+              : leadRecommendation.kind === 'suggestion'
+                ? `${stampCountLabel(leadRecommendation.trip.checkinCount)} in ${leadRecommendation.trip.country}`
+              : `${locationLabel(leadRecommendation.item)} - ${reasonLabel(leadRecommendation.item, me)}`}
+        </Text>
+          {leadRecommendation.kind === 'trail' ? (
+            <Link href={`/trail/${leadRecommendation.trail.id}`} asChild>
+              <TouchableOpacity style={styles.leadAction}>
+                <Text style={styles.leadActionText}>Open trail</Text>
+              </TouchableOpacity>
+            </Link>
+          ) : leadRecommendation.kind === 'suggestion' ? (
+            <TouchableOpacity style={styles.leadAction} onPress={() => saveSuggestedTrail(leadRecommendation.trip)}>
+              <Text style={styles.leadActionText}>Save as trail</Text>
+            </TouchableOpacity>
+          ) : null}
+      </View>
       ) : null}
 
-      {userTrails.length ? (
+      <View style={styles.trailsBlock}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Your trails</Text>
+          <Text style={styles.sectionMeta}>{savedTrails.length} saved</Text>
+        </View>
+        {savedTrails.length ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.trailRow}
+          >
+            {savedTrails.slice(0, 6).map((trail) => (
+              <Link href={`/trail/${trail.id}`} key={trail.id} asChild>
+                <TouchableOpacity style={styles.trailCard}>
+                  <Text style={styles.trailLabel}>{checkinVisibilityLabel(trail.privacy)}</Text>
+                  <Text style={styles.trailTitle}>{trail.title}</Text>
+                  <Text style={styles.trailMeta}>{trail.itemCount} {trail.itemCount === 1 ? 'stop' : 'stops'}</Text>
+                  <Text style={styles.trailDate}>Updated {formatDate(trail.updatedAt)}</Text>
+                </TouchableOpacity>
+              </Link>
+            ))}
+          </ScrollView>
+        ) : (
+          <View style={styles.emptyTrailCard}>
+            <Text style={styles.emptyTrailTitle}>No trails saved yet.</Text>
+            <Text style={styles.emptyTrailText}>Start from a city suggestion, or create a private draft from scratch.</Text>
+            <Link href="/trail/new" asChild>
+              <TouchableOpacity style={styles.emptyTrailAction}>
+                <Text style={styles.emptyTrailActionText}>Create trail</Text>
+              </TouchableOpacity>
+            </Link>
+          </View>
+        )}
+      </View>
+
+      {suggestedTrails.length ? (
         <View style={styles.trailsBlock}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Your trails</Text>
-            <Text style={styles.sectionMeta}>{userTrails.length} recent</Text>
+            <Text style={styles.sectionTitle}>Suggested from your passport</Text>
+            <Text style={styles.sectionMeta}>{suggestedTrails.length} ideas</Text>
           </View>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.trailRow}
           >
-            {userTrails.map((trail) => (
+            {suggestedTrails.map((trail) => (
               <View key={`${trail.city}-${trail.country}`} style={styles.trailCard}>
-                <Text style={styles.trailLabel}>Trail</Text>
+                <Text style={styles.trailLabel}>Suggestion</Text>
                 <Text style={styles.trailTitle}>{trail.city}</Text>
                 <Text style={styles.trailMeta}>{stampCountLabel(trail.checkinCount)} - {trail.country}</Text>
                 <Text style={styles.trailDate}>Updated {formatDate(trail.lastVisitedAt)}</Text>
+                <TouchableOpacity style={styles.saveTrailButton} onPress={() => saveSuggestedTrail(trail)}>
+                  <Text style={styles.saveTrailButtonText}>Save as trail</Text>
+                </TouchableOpacity>
               </View>
             ))}
           </ScrollView>
@@ -544,6 +625,18 @@ const styles = StyleSheet.create({
     marginTop: 6,
     lineHeight: 20,
   },
+  leadAction: {
+    alignSelf: 'flex-start',
+    marginTop: 12,
+    borderRadius: 8,
+    backgroundColor: '#22c55e',
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  leadActionText: {
+    color: '#052e16',
+    fontWeight: '900',
+  },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -602,6 +695,48 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontSize: 12,
     fontWeight: '800',
+  },
+  saveTrailButton: {
+    marginTop: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#38bdf8',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  saveTrailButtonText: {
+    color: '#7dd3fc',
+    fontSize: 12,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  emptyTrailCard: {
+    borderWidth: 1,
+    borderColor: '#1f3a5f',
+    borderRadius: 8,
+    padding: 14,
+    backgroundColor: '#0c1a2e',
+  },
+  emptyTrailTitle: {
+    color: '#f8fafc',
+    fontWeight: '900',
+  },
+  emptyTrailText: {
+    color: '#94a3b8',
+    marginTop: 5,
+    lineHeight: 20,
+  },
+  emptyTrailAction: {
+    alignSelf: 'flex-start',
+    marginTop: 10,
+    borderRadius: 8,
+    backgroundColor: '#0ea5e9',
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  emptyTrailActionText: {
+    color: '#082f49',
+    fontWeight: '900',
   },
   errorText: {
     color: '#fca5a5',
