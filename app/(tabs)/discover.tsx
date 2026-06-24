@@ -114,7 +114,11 @@ export default function Discover() {
 
       setMe(currentProfile);
       setPeople(allProfiles.filter((profile) => profile.id !== currentProfile.id));
-      setFeed(discoveryFeed.filter((item) => item.checkin.profileId !== currentProfile.id).slice(0, 6));
+      setFeed(
+        discoveryFeed
+          .filter((item) => item.checkin.profileId !== currentProfile.id && item.checkin.privacy === 'public')
+          .slice(0, 6)
+      );
       setFollowedIds(followed.map((profile) => profile.id));
       setFollowerIds(followers.map((profile) => profile.id));
       setErrorMessage(undefined);
