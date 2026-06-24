@@ -238,6 +238,7 @@ export default function Passport() {
         <PassportMapPanel
           cityMapByKey={cityMapByKey}
           selectedVisit={selectedVisit}
+          storageScopeId={me?.id ?? 'anonymous'}
           stamps={visibleMapStamps}
           onSelectVisit={setSelectedVisit}
         />

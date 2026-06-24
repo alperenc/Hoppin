@@ -57,6 +57,12 @@ function stampCountLabel(count: number): string {
   return `${count} ${count === 1 ? 'stamp' : 'stamps'}`;
 }
 
+function sortOwnLatestFeed(items: FollowFeedItem[], profileId: string): FollowFeedItem[] {
+  return items
+    .filter((item) => item.checkin.profileId === profileId)
+    .sort((a, b) => b.checkin.checkedAt.localeCompare(a.checkin.checkedAt));
+}
+
 type LeadRecommendation =
   | {
       kind: 'trail';
@@ -94,7 +100,7 @@ export default function Home() {
         listCityTrips(profile.id),
       ]);
       setMe(profile);
-      setFeed(nextFeed.filter((item) => item.checkin.profileId === profile.id));
+      setFeed(sortOwnLatestFeed(nextFeed, profile.id));
       setSummary(passportSummary);
       setStamps(passportStamps);
       setTrips(cityTrips);
@@ -128,7 +134,7 @@ export default function Home() {
           ]);
           if (!active) return;
           setMe(profile);
-          setFeed(nextFeed.filter((item) => item.checkin.profileId === profile.id));
+          setFeed(sortOwnLatestFeed(nextFeed, profile.id));
           setSummary(passportSummary);
           setStamps(passportStamps);
           setTrips(cityTrips);
@@ -268,6 +274,7 @@ export default function Home() {
         <PassportMapPanel
           cityMapByKey={cityMapByKey}
           selectedVisit={selectedVisit}
+          storageScopeId={me?.id ?? 'anonymous'}
           stamps={mapReadyStamps}
           onSelectVisit={setSelectedVisit}
         />

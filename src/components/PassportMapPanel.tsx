@@ -10,6 +10,7 @@ type PassportMapPanelProps = {
   cityMapByKey: Map<string, CityVisit>;
   selectedVisit: CityVisit | null;
   stamps: CityStamp[];
+  storageScopeId: string;
   onSelectVisit: (visit: CityVisit) => void;
 };
 
@@ -52,40 +53,38 @@ export function PassportMapPanel({
   cityMapByKey,
   selectedVisit,
   stamps,
+  storageScopeId,
   onSelectVisit,
 }: PassportMapPanelProps) {
   const [isLocatingMap, setIsLocatingMap] = useState(false);
   const [hasLoadedStoredRegion, setHasLoadedStoredRegion] = useState(false);
   const [userRegion, setUserRegion] = useState<MapRegion | null>(null);
   const [locationPromptMessage, setLocationPromptMessage] = useState<string>();
+  const storageKey = useMemo(() => `${storedRegionKey}:${storageScopeId}`, [storageScopeId]);
 
   const saveUserRegion = useCallback(async (nextRegion: MapRegion) => {
     setUserRegion(nextRegion);
-    await AsyncStorage.setItem(storedRegionKey, JSON.stringify(nextRegion));
-  }, []);
+    await AsyncStorage.setItem(storageKey, JSON.stringify(nextRegion));
+  }, [storageKey]);
 
   useEffect(() => {
     let mounted = true;
+    setUserRegion(null);
+    setHasLoadedStoredRegion(false);
 
     const hydrateRegion = async () => {
-      const storedRegion = parseStoredRegion(await AsyncStorage.getItem(storedRegionKey));
-      if (!mounted) return;
-
-      if (storedRegion) {
-        setUserRegion(storedRegion);
-        setHasLoadedStoredRegion(true);
-        return;
-      }
-
-      const permission = await Location.getForegroundPermissionsAsync();
-      if (!mounted) return;
-
-      if (permission.status !== 'granted') {
-        setHasLoadedStoredRegion(true);
-        return;
-      }
-
       try {
+        const storedRegion = parseStoredRegion(await AsyncStorage.getItem(storageKey));
+        if (!mounted) return;
+
+        if (storedRegion) {
+          setUserRegion(storedRegion);
+          return;
+        }
+
+        const permission = await Location.getForegroundPermissionsAsync();
+        if (!mounted || permission.status !== 'granted') return;
+
         const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
         if (!mounted) return;
         await saveUserRegion({
@@ -94,6 +93,10 @@ export function PassportMapPanel({
           latitudeDelta: USER_REGION_DELTA,
           longitudeDelta: USER_REGION_DELTA,
         });
+      } catch {
+        if (mounted) {
+          setLocationPromptMessage('Could not load your saved map start.');
+        }
       } finally {
         if (mounted) {
           setHasLoadedStoredRegion(true);
@@ -106,7 +109,7 @@ export function PassportMapPanel({
     return () => {
       mounted = false;
     };
-  }, [saveUserRegion]);
+  }, [saveUserRegion, storageKey]);
 
   const requestMapLocation = useCallback(async () => {
     try {
