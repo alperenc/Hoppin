@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Image as RNImage, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { checkinVisibilityLabel, followProfile, getCurrentProfile, getFollowCounts, getFollowedProfiles, getProfileByUsernameOrId, listPublicProfileCheckins, unfollowProfile } from '@/src/lib/hoppin';
-import { Checkin, Profile } from '@/src/types/hoppin';
+import { checkinVisibilityLabel, followProfile, getCurrentProfile, getFollowCounts, getFollowedProfiles, getProfileByUsernameOrId, listDiscoverTrails, listMyTrails, listPublicProfileCheckins, unfollowProfile } from '@/src/lib/hoppin';
+import { Checkin, Profile, Trail } from '@/src/types/hoppin';
 
 export default function PublicProfile() {
   const router = useRouter();
@@ -13,6 +13,7 @@ export default function PublicProfile() {
   const [followers, setFollowers] = useState(0);
   const [following, setFollowing] = useState(0);
   const [checkins, setCheckins] = useState<Checkin[]>([]);
+  const [trails, setTrails] = useState<Trail[]>([]);
   const [isFollowingProfile, setIsFollowingProfile] = useState(false);
   const [loading, setLoading] = useState(true);
   const isMounted = useRef(true);
@@ -30,10 +31,13 @@ export default function PublicProfile() {
         throw new Error('Profile not found.');
       }
 
-      const [countSet, publicFeed, followed] = await Promise.all([
+      const [countSet, publicFeed, followed, profileTrails] = await Promise.all([
         getFollowCounts(targetProfile.id),
         listPublicProfileCheckins(targetProfile.id),
         targetProfile.id !== currentProfile.id ? getFollowedProfiles(currentProfile.id) : Promise.resolve([]),
+        targetProfile.id === currentProfile.id
+          ? listMyTrails(targetProfile.id)
+          : listDiscoverTrails(currentProfile.id).then((items) => items.filter((trail) => trail.profileId === targetProfile.id)),
       ]);
 
       if (!isMounted.current) return;
@@ -44,6 +48,7 @@ export default function PublicProfile() {
       setFollowers(countSet.followers);
       setFollowing(countSet.following);
       setCheckins(publicFeed);
+      setTrails(profileTrails.filter((trail) => trail.privacy === 'public' || trail.profileId === currentProfile.id));
       setIsFollowingProfile(nextIsFollowing);
       setLoading(false);
     };
@@ -134,6 +139,19 @@ export default function PublicProfile() {
         </TouchableOpacity>
       ) : null}
 
+      {trails.length ? (
+        <View style={styles.trailList}>
+          <Text style={styles.sectionTitle}>Public trails</Text>
+          {trails.map((trail) => (
+            <TouchableOpacity key={trail.id} style={styles.card} onPress={() => router.push(`/trail/${trail.id}`)}>
+              <Text style={styles.cardHeader}>{trail.title}</Text>
+              <Text style={styles.cardTag}>{checkinVisibilityLabel(trail.privacy)} · {trail.itemCount} stops</Text>
+              {trail.description ? <Text style={styles.note}>{trail.description}</Text> : null}
+            </TouchableOpacity>
+          ))}
+        </View>
+      ) : null}
+
       <Text style={styles.sectionTitle}>Public check-ins</Text>
       {checkins.length === 0 ? (
         <Text style={styles.empty}>No public check-ins to show yet.</Text>
@@ -217,6 +235,9 @@ const styles = StyleSheet.create({
   metrics: {
     marginTop: 16,
     gap: 4,
+  },
+  trailList: {
+    gap: 10,
   },
   metricLabel: {
     color: '#e2e8f0',

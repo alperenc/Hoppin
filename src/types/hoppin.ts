@@ -103,6 +103,69 @@ export interface Trip {
   endedAt?: string;
 }
 
+export type TrailItemKind = 'checkin' | 'place';
+
+export interface TrailItem {
+  id: string;
+  trailId: string;
+  kind: TrailItemKind;
+  position: number;
+  checkinId?: string;
+  checkin?: Checkin;
+  venue?: Venue;
+  city?: CityLocation;
+  title?: string;
+  note?: string;
+  createdAt: string;
+}
+
+export interface Trail {
+  id: string;
+  profileId: string;
+  title: string;
+  description?: string;
+  privacy: PrivacyLevel;
+  coverImage?: string;
+  createdAt: string;
+  updatedAt: string;
+  owner?: Profile;
+  author?: Profile;
+  items: TrailItem[];
+  itemCount: number;
+}
+
+export type CreateTrailItemInput =
+  | {
+      kind: 'checkin';
+      checkinId: string;
+      position?: number;
+      note?: string;
+    }
+  | {
+      kind: 'place';
+      title?: string;
+      venue?: Venue;
+      city?: CityLocation;
+      position?: number;
+      note?: string;
+    };
+
+export interface CreateTrailInput {
+  profileId?: string;
+  title: string;
+  description?: string;
+  privacy?: PrivacyLevel;
+  coverImage?: string;
+  items?: CreateTrailItemInput[];
+}
+
+export interface UpdateTrailInput {
+  title?: string;
+  description?: string | null;
+  privacy?: PrivacyLevel;
+  coverImage?: string | null;
+}
+
 export interface PassportSummary {
   countriesCount: number;
   citiesCount: number;

@@ -7,6 +7,10 @@
   - Discover screen with creator/explorer relationship cards, mutual/follower states, and follow actions
   - Passport summary + city stamps
   - Passport map view using `react-native-maps` on native platforms and Google Maps JS on web
+- Explicit user-created trails:
+  - `trails` and `trail_items` schema in `supabase/migrations/0005_explicit_trails.sql`
+  - Private/followers/public visibility, owner edit/delete, ordered stamped-pour and planned-place items
+  - Trail composer, trail detail screen, Discover trail cards, profile trail cards, and "save passport suggestion as trail"
 - Passport-stamp composer with inferred venue/city scope, live stamp preview, hidden coordinate capture, collapsed details, privacy, rating, and notes
   - Optional pour photos upload to private Supabase Storage, save through the existing check-in media field as object paths, and render through signed URLs in feed/profile surfaces.
   - Local Supabase schema scaffold in `supabase/migrations/0001_hoppin_core.sql`
@@ -56,6 +60,7 @@
    - ✅ Add country-level filter chips on passport.
    - ✅ Add trip/grouped timeline by city.
    - ✅ Add public city card that shows who else checked in this city.
+   - ✅ Promote explicit trails as first-class saved/shared routes while keeping derived city groups as suggestions.
 
 5. **Influencer loop**
    - ✅ Introduce manual/explicit creator roles.

@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { Link } from 'expo-router';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Link, useRouter } from 'expo-router';
 import { PassportMapPanel } from '@/src/components/PassportMapPanel';
 import { useWebPullToRefresh } from '@/src/components/useWebPullToRefresh';
-import { CityVisit, CityVisitor, CityStamp, PassportSummary, Profile } from '@/src/types/hoppin';
+import { CityVisit, CityVisitor, CityStamp, PassportSummary, Profile, Trail } from '@/src/types/hoppin';
 import {
+  checkinVisibilityLabel,
+  createTrailFromCityVisit,
   getCurrentProfile,
   getPassportSummary,
   listCityTrips,
+  listMyTrails,
   listPassportStamps,
   listPublicCityVisitors,
 } from '@/src/lib/hoppin';
@@ -38,11 +41,13 @@ const visitRangeLabel = (visit: CityVisit): string => {
 const cityKey = (city: string, country: string) => `${city.toLowerCase()}-${country.toLowerCase()}`;
 
 export default function Passport() {
+  const router = useRouter();
   const isMountedRef = useRef(false);
   const [me, setMe] = useState<Profile | null>(null);
   const [summary, setSummary] = useState<PassportSummary | null>(null);
   const [stamps, setStamps] = useState<CityStamp[]>([]);
   const [trips, setTrips] = useState<CityVisit[]>([]);
+  const [savedTrails, setSavedTrails] = useState<Trail[]>([]);
   const [countries, setCountries] = useState<string[]>([]);
   const [selectedCountry, setSelectedCountry] = useState<string>(ALL_COUNTRIES);
   const [selectedVisit, setSelectedVisit] = useState<CityVisit | null>(null);
@@ -62,10 +67,11 @@ export default function Passport() {
 
     try {
       const currentProfile = await getCurrentProfile();
-      const [passportSummary, passportStamps, cityTrips] = await Promise.all([
+      const [passportSummary, passportStamps, cityTrips, explicitTrails] = await Promise.all([
         getPassportSummary(currentProfile.id),
         listPassportStamps(currentProfile.id),
         listCityTrips(currentProfile.id),
+        listMyTrails(currentProfile.id),
       ]);
 
       if (!isMountedRef.current) {
@@ -78,6 +84,7 @@ export default function Passport() {
       setSummary(passportSummary);
       setStamps(passportStamps);
       setTrips(cityTrips);
+      setSavedTrails(explicitTrails);
       setCountries(discoveredCountries);
 
       const nextSelection = cityTrips[0] ?? null;
@@ -204,6 +211,16 @@ export default function Passport() {
     return mapReadyStamps.filter((stamp) => stamp.country === selectedCountry);
   }, [mapReadyStamps, selectedCountry]);
 
+  const saveSuggestedTrail = async (trip: CityVisit) => {
+    if (!me) return;
+    try {
+      const trail = await createTrailFromCityVisit(me.id, trip.city, trip.country);
+      router.push(`/trail/${trail.id}`);
+    } catch {
+      Alert.alert('Trail not saved', 'Could not save this passport suggestion as a trail.');
+    }
+  };
+
   if (isLoading) {
     return (
       <View style={styles.loadingWrap}>
@@ -229,9 +246,18 @@ export default function Passport() {
       {...webPullHandlers}
     >
       {webRefreshIndicator}
-      <Text style={styles.title}>Trails</Text>
-      <Text style={styles.subtitle}>Build beer routes from individual stamps, then share the best runs with followers.</Text>
-      <Text style={styles.handle}>{me ? me.displayName : 'Unknown'}</Text>
+      <View style={styles.heroRow}>
+        <View style={styles.heroCopy}>
+          <Text style={styles.title}>Trails</Text>
+          <Text style={styles.subtitle}>Build beer routes from individual stamps, then share the best runs with followers.</Text>
+          <Text style={styles.handle}>{me ? me.displayName : 'Unknown'}</Text>
+        </View>
+        <Link href="/trail/new" asChild>
+          <TouchableOpacity style={styles.createButton}>
+            <Text style={styles.createButtonText}>Create trail</Text>
+          </TouchableOpacity>
+        </Link>
+      </View>
       {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
 
       <View style={[styles.card, styles.mapCard]}>
@@ -257,6 +283,36 @@ export default function Passport() {
           <Text style={styles.metricValue}>{summary?.checkinsCount ?? 0}</Text>
           <Text style={styles.metricLabel}>Stamps</Text>
         </View>
+      </View>
+
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Your trails</Text>
+        <Text style={styles.sectionMeta}>{savedTrails.length} saved</Text>
+      </View>
+      <View style={styles.card}>
+        {savedTrails.length ? (
+          savedTrails.map((trail) => (
+            <Link href={`/trail/${trail.id}`} key={trail.id} asChild>
+              <TouchableOpacity style={styles.savedTrailCard}>
+                <View style={styles.timelineHeader}>
+                  <Text style={styles.timelineCity}>{trail.title}</Text>
+                  <Text style={styles.timelineCount}>{trail.itemCount} stops</Text>
+                </View>
+                <Text style={styles.timelineMeta}>{checkinVisibilityLabel(trail.privacy)} - updated {asSafeDate(trail.updatedAt)}</Text>
+              </TouchableOpacity>
+            </Link>
+          ))
+        ) : (
+          <View style={styles.emptyTrailState}>
+            <Text style={styles.emptyTrailTitle}>Create your first trail.</Text>
+            <Text style={styles.emptyText}>Start with an empty private draft or save a passport suggestion below.</Text>
+            <Link href="/trail/new" asChild>
+              <TouchableOpacity style={styles.emptyTrailAction}>
+                <Text style={styles.emptyTrailActionText}>Create trail</Text>
+              </TouchableOpacity>
+            </Link>
+          </View>
+        )}
       </View>
 
       <Text style={styles.sectionTitle}>Country filters</Text>
@@ -290,10 +346,10 @@ export default function Passport() {
         })}
       </ScrollView>
 
-      <Text style={styles.sectionTitle}>Trail timeline</Text>
+      <Text style={styles.sectionTitle}>Suggested from your passport</Text>
       <View style={styles.card}>
         {!filteredTrips.length ? (
-          <Text style={styles.emptyText}>No trails in this view yet.</Text>
+          <Text style={styles.emptyText}>No passport suggestions in this view yet.</Text>
         ) : (
           filteredTrips.map((trip) => {
             const selected = selectedVisit?.city === trip.city && selectedVisit?.country === trip.country;
@@ -309,6 +365,9 @@ export default function Passport() {
                 </View>
                 <Text style={styles.timelineMeta}>{trip.country}</Text>
                 <Text style={styles.timelineMeta}>{visitRangeLabel(trip)}</Text>
+                <TouchableOpacity style={styles.saveTrailButton} onPress={() => saveSuggestedTrail(trip)}>
+                  <Text style={styles.saveTrailButtonText}>Save as trail</Text>
+                </TouchableOpacity>
               </TouchableOpacity>
             );
           })
@@ -377,6 +436,26 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 8,
   },
+  heroRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  heroCopy: {
+    flex: 1,
+  },
+  createButton: {
+    borderRadius: 8,
+    backgroundColor: '#22c55e',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 4,
+  },
+  createButtonText: {
+    color: '#052e16',
+    fontWeight: '900',
+  },
   summaryRow: {
     flexDirection: 'row',
     gap: 8,
@@ -405,6 +484,16 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     fontWeight: '700',
     fontSize: 18,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  sectionMeta: {
+    color: '#94a3b8',
   },
   chipRow: {
     gap: 8,
@@ -446,6 +535,12 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 8,
   },
+  savedTrailCard: {
+    borderRadius: 10,
+    backgroundColor: '#0f172a',
+    padding: 12,
+    marginBottom: 8,
+  },
   timelineCardActive: {
     borderWidth: 1,
     borderColor: '#38bdf8',
@@ -469,6 +564,40 @@ const styles = StyleSheet.create({
     marginTop: 4,
     color: '#94a3b8',
     fontSize: 13,
+  },
+  saveTrailButton: {
+    alignSelf: 'flex-start',
+    marginTop: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#38bdf8',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  saveTrailButtonText: {
+    color: '#7dd3fc',
+    fontWeight: '900',
+    fontSize: 12,
+  },
+  emptyTrailState: {
+    alignItems: 'center',
+    padding: 8,
+  },
+  emptyTrailTitle: {
+    color: '#f8fafc',
+    fontWeight: '900',
+    fontSize: 16,
+  },
+  emptyTrailAction: {
+    marginTop: 4,
+    borderRadius: 8,
+    backgroundColor: '#0ea5e9',
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  emptyTrailActionText: {
+    color: '#082f49',
+    fontWeight: '900',
   },
   emptyText: {
     color: '#94a3b8',
