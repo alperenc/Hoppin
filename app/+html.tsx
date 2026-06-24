@@ -1,4 +1,5 @@
 import { type PropsWithChildren } from 'react';
+import { ScrollViewStyleReset } from 'expo-router/html';
 
 const faviconSvg = [
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">',
@@ -14,7 +15,8 @@ export default function Root({ children }: PropsWithChildren) {
     <html lang="en">
       <head>
         <meta charSet="utf-8" />
-        <meta content="width=device-width, initial-scale=1" name="viewport" />
+        <meta content="width=device-width, initial-scale=1, shrink-to-fit=no" name="viewport" />
+        <ScrollViewStyleReset />
         <link href={faviconHref} rel="icon" type="image/svg+xml" />
       </head>
       <body>{children}</body>
