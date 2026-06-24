@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import * as Location from 'expo-location';
 import { Link } from 'expo-router';
+import { MapPin } from 'lucide-react-native';
 import { CityPassportMap, MapRegion } from '@/src/components/CityPassportMap';
 import { useWebPullToRefresh } from '@/src/components/useWebPullToRefresh';
 import { CityVisit, CityVisitor, CityStamp, PassportSummary, Profile } from '@/src/types/hoppin';
@@ -26,6 +28,8 @@ const DEFAULT_REGION: MapRegion = {
   latitudeDelta: 120,
   longitudeDelta: 160,
 };
+
+const USER_REGION_DELTA = 0.14;
 
 const asSafeDate = (value: string): string => {
   const parsed = new Date(value);
@@ -57,6 +61,9 @@ export default function Passport() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoadingVisitors, setIsLoadingVisitors] = useState(false);
+  const [isLocatingMap, setIsLocatingMap] = useState(false);
+  const [userRegion, setUserRegion] = useState<MapRegion | null>(null);
+  const [locationPromptMessage, setLocationPromptMessage] = useState<string>();
   const [errorMessage, setErrorMessage] = useState<string>();
 
   const loadPassport = useCallback(async (mode: 'initial' | 'refresh' = 'initial') => {
@@ -211,10 +218,39 @@ export default function Passport() {
     return mapReadyStamps.filter((stamp) => stamp.country === selectedCountry);
   }, [mapReadyStamps, selectedCountry]);
 
+  const requestMapLocation = useCallback(async () => {
+    try {
+      setIsLocatingMap(true);
+      setLocationPromptMessage(undefined);
+
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setLocationPromptMessage('Location access was not granted.');
+        Alert.alert('Location blocked', 'Enable location permission to center the passport map near you.');
+        return;
+      }
+
+      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      setUserRegion({
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        latitudeDelta: USER_REGION_DELTA,
+        longitudeDelta: USER_REGION_DELTA,
+      });
+      setLocationPromptMessage('Map centered near your current area.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not read location.';
+      setLocationPromptMessage(message);
+      Alert.alert('Location failed', message);
+    } finally {
+      setIsLocatingMap(false);
+    }
+  }, []);
+
   const region = useMemo<MapRegion>(() => {
     const mapPrimary = visibleMapStamps[0];
     if (!mapPrimary) {
-      return DEFAULT_REGION;
+      return userRegion ?? DEFAULT_REGION;
     }
 
     const spanLat = visibleMapStamps.length > 1 ? Math.min(120, Math.max(20, Math.abs(mapPrimary.lat))) : 40;
@@ -226,7 +262,9 @@ export default function Passport() {
       latitudeDelta: Math.max(20, spanLat),
       longitudeDelta: Math.max(20, spanLng),
     };
-  }, [visibleMapStamps]);
+  }, [userRegion, visibleMapStamps]);
+
+  const shouldPromptForMapLocation = visibleMapStamps.length === 0 && !userRegion;
 
   if (isLoading) {
     return (
@@ -275,13 +313,40 @@ export default function Passport() {
 
       <Text style={styles.sectionTitle}>City map</Text>
       <View style={[styles.card, styles.mapCard]}>
-        <CityPassportMap
-          cityMapByKey={cityMapByKey}
-          region={region}
-          selectedVisit={selectedVisit}
-          stamps={visibleMapStamps}
-          onSelectVisit={setSelectedVisit}
-        />
+        {shouldPromptForMapLocation ? (
+          <View style={styles.locationPrompt}>
+            <View style={styles.locationIcon}>
+              <MapPin color="#071022" size={22} />
+            </View>
+            <Text style={styles.locationKicker}>Nearby start</Text>
+            <Text style={styles.locationTitle}>Center the passport near you</Text>
+            <Text style={styles.locationCopy}>
+              Use your current area as the first map view, then pin cities as you stamp pours.
+            </Text>
+            <TouchableOpacity
+              style={[styles.locationButton, isLocatingMap ? styles.disabledButton : undefined]}
+              onPress={requestMapLocation}
+              disabled={isLocatingMap}
+            >
+              <Text style={styles.locationButtonText}>{isLocatingMap ? 'Finding your area...' : 'Use my location'}</Text>
+            </TouchableOpacity>
+            {locationPromptMessage ? <Text style={styles.locationMessage}>{locationPromptMessage}</Text> : null}
+          </View>
+        ) : (
+          <CityPassportMap
+            cityMapByKey={cityMapByKey}
+            emptyMapMeta={
+              userRegion && visibleMapStamps.length === 0
+                ? 'Stamp a pour with a city to pin it near this area.'
+                : undefined
+            }
+            emptyMapTitle={userRegion && visibleMapStamps.length === 0 ? 'Map centered near you' : undefined}
+            region={region}
+            selectedVisit={selectedVisit}
+            stamps={visibleMapStamps}
+            onSelectVisit={setSelectedVisit}
+          />
+        )}
       </View>
 
       <Text style={styles.sectionTitle}>Country filters</Text>
@@ -464,6 +529,61 @@ const styles = StyleSheet.create({
   },
   mapCard: {
     padding: 6,
+  },
+  locationPrompt: {
+    minHeight: 336,
+    borderRadius: 10,
+    backgroundColor: '#071426',
+    borderColor: '#1e3a5f',
+    borderWidth: 1,
+    justifyContent: 'center',
+    padding: 18,
+  },
+  locationIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#22c55e',
+    marginBottom: 14,
+  },
+  locationKicker: {
+    color: '#7dd3fc',
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  locationTitle: {
+    color: '#f8fafc',
+    fontSize: 22,
+    fontWeight: '800',
+    marginTop: 4,
+  },
+  locationCopy: {
+    color: '#94a3b8',
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 8,
+  },
+  locationButton: {
+    alignItems: 'center',
+    borderRadius: 8,
+    backgroundColor: '#22c55e',
+    marginTop: 16,
+    paddingVertical: 12,
+  },
+  disabledButton: {
+    opacity: 0.6,
+  },
+  locationButtonText: {
+    color: '#052e16',
+    fontWeight: '800',
+  },
+  locationMessage: {
+    color: '#94a3b8',
+    marginTop: 10,
+    textAlign: 'center',
   },
   timelineCard: {
     borderRadius: 10,

@@ -11,6 +11,8 @@ export type MapRegion = {
 
 type CityPassportMapProps = {
   cityMapByKey: Map<string, CityVisit>;
+  emptyMapMeta?: string;
+  emptyMapTitle?: string;
   region: MapRegion;
   selectedVisit: CityVisit | null;
   stamps: CityStamp[];
