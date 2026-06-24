@@ -1,17 +1,18 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Link, useFocusEffect } from 'expo-router';
-import { BadgeCheck, Compass, Sparkles, UserPlus, UsersRound } from 'lucide-react-native';
+import { BadgeCheck, Beer, Compass, MapPin, Sparkles, UserPlus, UsersRound } from 'lucide-react-native';
 import { useWebPullToRefresh } from '@/src/components/useWebPullToRefresh';
 import {
   followProfile,
   getCurrentProfile,
   getFollowedProfiles,
   getFollowers,
+  listForYouFeed,
   listProfiles,
   unfollowProfile,
 } from '@/src/lib/hoppin';
-import { Profile } from '@/src/types/hoppin';
+import { FollowFeedItem, Profile } from '@/src/types/hoppin';
 
 type PersonCardProps = {
   followedIds: string[];
@@ -63,11 +64,28 @@ function PersonCard({ followedIds, followerIds, onToggleFollow, profile }: Perso
   );
 }
 
+function formatStyle(style: string): string {
+  if (style === 'ipa') return 'IPA';
+  return style.slice(0, 1).toUpperCase() + style.slice(1);
+}
+
+function stampLocationLabel(item: FollowFeedItem): string {
+  const { checkin } = item;
+  if (checkin.scope === 'venue' && checkin.venue) {
+    return `${checkin.venue.name} - ${checkin.venue.city}`;
+  }
+  if (checkin.city) {
+    return `${checkin.city.city}, ${checkin.city.country}`;
+  }
+  return 'Passport stamp';
+}
+
 export default function Discover() {
   const isMountedRef = useRef(false);
   const requestIdRef = useRef(0);
   const [me, setMe] = useState<Profile | null>(null);
   const [people, setPeople] = useState<Profile[]>([]);
+  const [feed, setFeed] = useState<FollowFeedItem[]>([]);
   const [followedIds, setFollowedIds] = useState<string[]>([]);
   const [followerIds, setFollowerIds] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -88,6 +106,7 @@ export default function Discover() {
         getFollowedProfiles(currentProfile.id),
         getFollowers(currentProfile.id),
       ]);
+      const discoveryFeed = await listForYouFeed(currentProfile.id);
 
       if (!isMountedRef.current || requestId !== requestIdRef.current) {
         return;
@@ -95,6 +114,7 @@ export default function Discover() {
 
       setMe(currentProfile);
       setPeople(allProfiles.filter((profile) => profile.id !== currentProfile.id));
+      setFeed(discoveryFeed.filter((item) => item.checkin.profileId !== currentProfile.id).slice(0, 6));
       setFollowedIds(followed.map((profile) => profile.id));
       setFollowerIds(followers.map((profile) => profile.id));
       setErrorMessage(undefined);
@@ -126,7 +146,7 @@ export default function Discover() {
 
   const creators = useMemo(() => people.filter((profile) => profile.isCreator), [people]);
   const explorers = useMemo(() => people.filter((profile) => !profile.isCreator), [people]);
-  const mutualCount = useMemo(() => followedIds.filter((id) => followerIds.includes(id)).length, [followedIds, followerIds]);
+  const trailMakerCount = creators.length;
   const refreshDiscover = useCallback(() => {
     void load('refresh');
   }, [load]);
@@ -193,8 +213,8 @@ export default function Discover() {
           <Sparkles color="#facc15" size={16} />
           <Text style={styles.kicker}>Discover</Text>
         </View>
-        <Text style={styles.title}>Find the people behind the pours.</Text>
-        <Text style={styles.subtitle}>Follow creators for new beer trails, and keep explorers close when your routes overlap.</Text>
+        <Text style={styles.title}>Find stamps worth turning into trails.</Text>
+        <Text style={styles.subtitle}>Browse public pours, follow trail makers, and save the creators whose routes match your taste.</Text>
       </View>
 
       <View style={styles.statsRow}>
@@ -210,17 +230,44 @@ export default function Discover() {
         </View>
         <View style={styles.statCard}>
           <Compass color="#facc15" size={18} />
-          <Text style={styles.statValue}>{mutualCount}</Text>
-          <Text style={styles.statLabel}>mutual</Text>
+          <Text style={styles.statValue}>{trailMakerCount}</Text>
+          <Text style={styles.statLabel}>creators</Text>
         </View>
       </View>
 
       {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
 
+      {feed.length ? (
+        <>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Public stamps</Text>
+            <Text style={styles.sectionMeta}>{feed.length} pours</Text>
+          </View>
+          <View style={styles.stampGrid}>
+            {feed.map((item) => (
+              <Link href={`/user/${item.author.username}`} key={item.checkin.id} asChild>
+                <TouchableOpacity style={styles.stampCard}>
+                  <Text style={styles.stampAuthor}>{item.author.displayName}</Text>
+                  <Text style={styles.stampBeer}>{item.checkin.beer.name}</Text>
+                  <View style={styles.stampMetaRow}>
+                    <Beer color="#f59e0b" size={15} />
+                    <Text style={styles.stampMeta}>{formatStyle(item.checkin.beer.style)}</Text>
+                  </View>
+                  <View style={styles.stampMetaRow}>
+                    <MapPin color="#86efac" size={15} />
+                    <Text style={styles.stampMeta}>{stampLocationLabel(item)}</Text>
+                  </View>
+                </TouchableOpacity>
+              </Link>
+            ))}
+          </View>
+        </>
+      ) : null}
+
       {creators.length ? (
         <>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Creator taps</Text>
+            <Text style={styles.sectionTitle}>Trail makers</Text>
             <Text style={styles.sectionMeta}>{creators.length} people</Text>
           </View>
           {creators.map(renderPerson)}
@@ -230,17 +277,17 @@ export default function Discover() {
       {explorers.length ? (
         <>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Travel overlaps</Text>
+            <Text style={styles.sectionTitle}>People with overlap</Text>
             <Text style={styles.sectionMeta}>{explorers.length} people</Text>
           </View>
           {explorers.map(renderPerson)}
         </>
       ) : null}
 
-      {!people.length ? (
+      {!people.length && !feed.length ? (
         <View style={styles.emptyCard}>
-          <Text style={styles.emptyTitle}>No profiles to discover yet.</Text>
-          <Text style={styles.emptyText}>New creators and explorers will appear here as they join Hoppin.</Text>
+          <Text style={styles.emptyTitle}>No stamps or trails to discover yet.</Text>
+          <Text style={styles.emptyText}>Public pours and trail makers will appear here as Hoppin grows.</Text>
         </View>
       ) : null}
     </ScrollView>
@@ -348,6 +395,41 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     backgroundColor: '#2f1116',
     textAlign: 'center',
+  },
+  stampGrid: {
+    gap: 10,
+    marginBottom: 14,
+  },
+  stampCard: {
+    borderWidth: 1,
+    borderColor: '#1f3a5f',
+    borderRadius: 8,
+    padding: 12,
+    backgroundColor: '#0f172a',
+    gap: 8,
+  },
+  stampAuthor: {
+    color: '#7dd3fc',
+    fontWeight: '900',
+    fontSize: 12,
+    textTransform: 'uppercase',
+  },
+  stampBeer: {
+    color: '#f8fafc',
+    fontWeight: '900',
+    fontSize: 18,
+    lineHeight: 22,
+  },
+  stampMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
+  stampMeta: {
+    color: '#cbd5e1',
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
   },
   personCard: {
     borderWidth: 1,

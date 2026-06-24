@@ -95,7 +95,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="passport"
         options={{
-          title: 'Map',
+          title: 'Trails',
           tabBarIcon: ({ color }) => <Map color={color} size={20} />,
         }}
       />
