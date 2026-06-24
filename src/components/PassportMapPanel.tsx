@@ -1,5 +1,6 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
 import { MapPin } from 'lucide-react-native';
 import { CityPassportMap, MapRegion } from '@/src/components/CityPassportMap';
@@ -9,6 +10,7 @@ type PassportMapPanelProps = {
   cityMapByKey: Map<string, CityVisit>;
   selectedVisit: CityVisit | null;
   stamps: CityStamp[];
+  storageScopeId: string;
   onSelectVisit: (visit: CityVisit) => void;
 };
 
@@ -20,16 +22,94 @@ const DEFAULT_REGION: MapRegion = {
 };
 
 const USER_REGION_DELTA = 0.14;
+const storedRegionKey = 'hoppin:passport-map-region';
+
+function parseStoredRegion(raw: string | null): MapRegion | null {
+  if (!raw) return null;
+
+  try {
+    const value = JSON.parse(raw) as Partial<MapRegion>;
+    if (
+      Number.isFinite(value.latitude) &&
+      Number.isFinite(value.longitude) &&
+      Number.isFinite(value.latitudeDelta) &&
+      Number.isFinite(value.longitudeDelta)
+    ) {
+      return {
+        latitude: value.latitude!,
+        longitude: value.longitude!,
+        latitudeDelta: value.latitudeDelta!,
+        longitudeDelta: value.longitudeDelta!,
+      };
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
 
 export function PassportMapPanel({
   cityMapByKey,
   selectedVisit,
   stamps,
+  storageScopeId,
   onSelectVisit,
 }: PassportMapPanelProps) {
   const [isLocatingMap, setIsLocatingMap] = useState(false);
+  const [hasLoadedStoredRegion, setHasLoadedStoredRegion] = useState(false);
   const [userRegion, setUserRegion] = useState<MapRegion | null>(null);
   const [locationPromptMessage, setLocationPromptMessage] = useState<string>();
+  const storageKey = useMemo(() => `${storedRegionKey}:${storageScopeId}`, [storageScopeId]);
+
+  const saveUserRegion = useCallback(async (nextRegion: MapRegion) => {
+    setUserRegion(nextRegion);
+    await AsyncStorage.setItem(storageKey, JSON.stringify(nextRegion));
+  }, [storageKey]);
+
+  useEffect(() => {
+    let mounted = true;
+    setUserRegion(null);
+    setHasLoadedStoredRegion(false);
+
+    const hydrateRegion = async () => {
+      try {
+        const storedRegion = parseStoredRegion(await AsyncStorage.getItem(storageKey));
+        if (!mounted) return;
+
+        if (storedRegion) {
+          setUserRegion(storedRegion);
+          return;
+        }
+
+        const permission = await Location.getForegroundPermissionsAsync();
+        if (!mounted || permission.status !== 'granted') return;
+
+        const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        if (!mounted) return;
+        await saveUserRegion({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          latitudeDelta: USER_REGION_DELTA,
+          longitudeDelta: USER_REGION_DELTA,
+        });
+      } catch {
+        if (mounted) {
+          setLocationPromptMessage('Could not load your saved map start.');
+        }
+      } finally {
+        if (mounted) {
+          setHasLoadedStoredRegion(true);
+        }
+      }
+    };
+
+    void hydrateRegion();
+
+    return () => {
+      mounted = false;
+    };
+  }, [saveUserRegion, storageKey]);
 
   const requestMapLocation = useCallback(async () => {
     try {
@@ -44,13 +124,13 @@ export function PassportMapPanel({
       }
 
       const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      setUserRegion({
+      await saveUserRegion({
         latitude: position.coords.latitude,
         longitude: position.coords.longitude,
         latitudeDelta: USER_REGION_DELTA,
         longitudeDelta: USER_REGION_DELTA,
       });
-      setLocationPromptMessage('Map centered near your current area.');
+      setLocationPromptMessage('Map centered near you.');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not read location.';
       setLocationPromptMessage(message);
@@ -58,7 +138,7 @@ export function PassportMapPanel({
     } finally {
       setIsLocatingMap(false);
     }
-  }, []);
+  }, [saveUserRegion]);
 
   const region = useMemo<MapRegion>(() => {
     const mapPrimary = stamps[0];
@@ -77,16 +157,23 @@ export function PassportMapPanel({
     };
   }, [stamps, userRegion]);
 
+  if (stamps.length === 0 && !hasLoadedStoredRegion) {
+    return (
+      <View style={styles.locationPrompt}>
+        <Text style={styles.locationTitle}>Preparing your map...</Text>
+      </View>
+    );
+  }
+
   if (stamps.length === 0 && !userRegion) {
     return (
       <View style={styles.locationPrompt}>
         <View style={styles.locationIcon}>
           <MapPin color="#071022" size={22} />
         </View>
-        <Text style={styles.locationKicker}>Nearby start</Text>
-        <Text style={styles.locationTitle}>Center the passport near you</Text>
+        <Text style={styles.locationTitle}>Start near you</Text>
         <Text style={styles.locationCopy}>
-          Use your current area as the first map view, then pin cities as you stamp pours.
+          Let Hoppin remember your map start, then your stamps will take over as the passport fills in.
         </Text>
         <TouchableOpacity
           style={[styles.locationButton, isLocatingMap ? styles.disabledButton : undefined]}
@@ -104,7 +191,7 @@ export function PassportMapPanel({
     <CityPassportMap
       cityMapByKey={cityMapByKey}
       emptyMapMeta={userRegion && stamps.length === 0 ? 'Stamp a pour with a city to pin it near this area.' : undefined}
-      emptyMapTitle={userRegion && stamps.length === 0 ? 'Map centered near you' : undefined}
+      emptyMapTitle={userRegion && stamps.length === 0 ? 'Ready for your first stamp' : undefined}
       region={region}
       selectedVisit={selectedVisit}
       stamps={stamps}
@@ -131,12 +218,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#22c55e',
     marginBottom: 14,
-  },
-  locationKicker: {
-    color: '#7dd3fc',
-    fontSize: 11,
-    fontWeight: '800',
-    textTransform: 'uppercase',
   },
   locationTitle: {
     color: '#f8fafc',
