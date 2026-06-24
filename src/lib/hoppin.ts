@@ -263,6 +263,12 @@ type DbTrailItemRow = {
   city_id: string | null;
   title: string | null;
   note: string | null;
+  checkin_beer_name: string | null;
+  checkin_beer_style: BeerStyle | null;
+  checkin_location_name: string | null;
+  checkin_city: string | null;
+  checkin_country: string | null;
+  checkin_checked_at: string | null;
   created_at: string;
   cities?: DbTrailItemCity[] | DbTrailItemCity | null;
   venues?: DbTrailItemVenue[] | DbTrailItemVenue | null;
@@ -290,6 +296,12 @@ const trailItemSelect = `
   city_id,
   title,
   note,
+  checkin_beer_name,
+  checkin_beer_style,
+  checkin_location_name,
+  checkin_city,
+  checkin_country,
+  checkin_checked_at,
   created_at,
   cities(city,country,latitude,longitude),
   venues(id,name,country,place_provider,provider_place_id,latitude,longitude,city:city_id(city,country))
@@ -671,6 +683,14 @@ function mapDbTrailItem(row: DbTrailItemRow, checkinsById: Map<string, Checkin>)
         lng: toNumber(cityRow.longitude) ?? 0,
       }
     : undefined;
+  const snapshotCity = !city && row.checkin_city
+    ? {
+        city: row.checkin_city,
+        country: row.checkin_country ?? 'Unknown',
+        lat: 0,
+        lng: 0,
+      }
+    : undefined;
   const venue = venueRow
     ? {
         id: venueRow.id,
@@ -692,8 +712,10 @@ function mapDbTrailItem(row: DbTrailItemRow, checkinsById: Map<string, Checkin>)
     checkinId: row.checkin_id ?? undefined,
     checkin: row.checkin_id ? checkinsById.get(row.checkin_id) : undefined,
     venue,
-    city,
-    title: row.title ?? undefined,
+    city: city ?? snapshotCity,
+    title: row.title ?? row.checkin_beer_name ?? row.checkin_location_name ?? undefined,
+    style: row.checkin_beer_style ?? undefined,
+    checkedAt: row.checkin_checked_at ?? undefined,
     note: row.note ?? undefined,
     createdAt: row.created_at,
   };
@@ -2008,6 +2030,12 @@ async function buildDbTrailItemPayload(trail: Trail, input: CreateTrailItemInput
   city_id: string | null;
   title: string | null;
   note: string | null;
+  checkin_beer_name: string | null;
+  checkin_beer_style: BeerStyle | null;
+  checkin_location_name: string | null;
+  checkin_city: string | null;
+  checkin_country: string | null;
+  checkin_checked_at: string | null;
 }> {
   const position = nextTrailItemPosition(trail, input.position);
 
@@ -2016,6 +2044,12 @@ async function buildDbTrailItemPayload(trail: Trail, input: CreateTrailItemInput
     if (!matchingCheckin || matchingCheckin.profileId !== trail.profileId) {
       throw new Error('Only your own stamps can be added to this trail.');
     }
+    const checkinCity = matchingCheckin.city ?? (matchingCheckin.venue
+      ? {
+          city: matchingCheckin.venue.city,
+          country: matchingCheckin.venue.country,
+        }
+      : undefined);
 
     return {
       trail_id: trail.id,
@@ -2026,6 +2060,12 @@ async function buildDbTrailItemPayload(trail: Trail, input: CreateTrailItemInput
       city_id: null,
       title: null,
       note: input.note?.trim() || null,
+      checkin_beer_name: matchingCheckin.beer.name,
+      checkin_beer_style: matchingCheckin.beer.style,
+      checkin_location_name: matchingCheckin.venue?.name ?? null,
+      checkin_city: checkinCity?.city ?? null,
+      checkin_country: checkinCity?.country ?? null,
+      checkin_checked_at: matchingCheckin.checkedAt,
     };
   }
 
@@ -2067,6 +2107,12 @@ async function buildDbTrailItemPayload(trail: Trail, input: CreateTrailItemInput
     city_id: cityId,
     title,
     note: input.note?.trim() || null,
+    checkin_beer_name: null,
+    checkin_beer_style: null,
+    checkin_location_name: null,
+    checkin_city: null,
+    checkin_country: null,
+    checkin_checked_at: null,
   };
 }
 

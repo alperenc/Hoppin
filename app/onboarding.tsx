@@ -36,6 +36,9 @@ const allowedPostOnboardingRoutes = new Set(['/checkin', '/home', '/discover', '
 
 const normalizeReturnTo = (value: string | string[] | undefined) => {
   const destination = Array.isArray(value) ? value[0] : value;
+  if (destination && (destination === '/trail/new' || /^\/trail\/[^/]+$/.test(destination))) {
+    return destination;
+  }
   return destination && allowedPostOnboardingRoutes.has(destination) ? destination : '/home';
 };
 

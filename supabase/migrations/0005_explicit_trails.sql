@@ -19,6 +19,12 @@ create table if not exists public.trail_items (
   city_id uuid references public.cities(id) on delete set null,
   title text,
   note text,
+  checkin_beer_name text,
+  checkin_beer_style text,
+  checkin_location_name text,
+  checkin_city text,
+  checkin_country text,
+  checkin_checked_at timestamptz,
   created_at timestamptz not null default now(),
   constraint trail_items_payload_check check (
     (item_type = 'checkin' and checkin_id is not null)
@@ -167,36 +173,3 @@ create policy "Trail owners can delete trail items" on public.trail_items
         and trails.profile_id = auth.uid()
     )
   );
-
-drop policy if exists checkins_select_feed on public.checkins;
-create policy checkins_select_feed on public.checkins for select using (
-  profile_id = auth.uid()
-  or privacy = 'public'
-  or (
-    privacy = 'followers'
-    and exists (
-      select 1
-      from public.follows f
-      where f.follower_id = auth.uid() and f.following_id = profile_id
-    )
-  )
-  or exists (
-    select 1
-    from public.trail_items ti
-    join public.trails t on t.id = ti.trail_id
-    where ti.checkin_id = checkins.id
-      and (
-        t.profile_id = auth.uid()
-        or t.privacy = 'public'
-        or (
-          t.privacy = 'followers'
-          and exists (
-            select 1
-            from public.follows f
-            where f.follower_id = auth.uid()
-              and f.following_id = t.profile_id
-          )
-        )
-      )
-  )
-);

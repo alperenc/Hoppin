@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { Link, useRouter } from 'expo-router';
+import { Link, useFocusEffect, useRouter } from 'expo-router';
 import { PassportMapPanel } from '@/src/components/PassportMapPanel';
 import { useWebPullToRefresh } from '@/src/components/useWebPullToRefresh';
 import { CityVisit, CityVisitor, CityStamp, PassportSummary, Profile, Trail } from '@/src/types/hoppin';
@@ -117,14 +117,16 @@ export default function Passport() {
     }
   }, []);
 
-  useEffect(() => {
-    isMountedRef.current = true;
-    void loadPassport();
+  useFocusEffect(
+    useCallback(() => {
+      isMountedRef.current = true;
+      void loadPassport();
 
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, [loadPassport]);
+      return () => {
+        isMountedRef.current = false;
+      };
+    }, [loadPassport])
+  );
 
   const refreshPassport = useCallback(() => {
     void loadPassport('refresh');

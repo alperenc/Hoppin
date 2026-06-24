@@ -17,14 +17,17 @@ import { PrivacyLevel, Profile, Trail } from '@/src/types/hoppin';
 const privacyOptions: PrivacyLevel[] = ['private', 'followers', 'public'];
 
 function itemTitle(item: Trail['items'][number]): string {
-  if (item.kind === 'checkin') return item.checkin?.beer.name ?? 'Stamped pour';
+  if (item.kind === 'checkin') return item.checkin?.beer.name ?? item.title ?? 'Stamped pour';
   return item.title ?? item.venue?.name ?? item.city?.city ?? 'Planned stop';
 }
 
 function itemMeta(item: Trail['items'][number]): string {
   if (item.kind === 'checkin') {
     const checkin = item.checkin;
-    if (!checkin) return 'Stamp';
+    if (!checkin) {
+      if (item.city) return `${item.city.city}, ${item.city.country}`;
+      return item.checkedAt ? 'Stamped pour' : 'Stamp';
+    }
     if (checkin.scope === 'venue' && checkin.venue) {
       return `${checkin.venue.name} - ${checkin.venue.city}`;
     }
@@ -102,7 +105,7 @@ export default function TrailDetail() {
             return;
           }
 
-          router.replace(route.destination);
+          router.replace(route.destination === '/auth' ? { pathname: '/auth', params: { returnTo } } : route.destination);
           return;
         }
 
@@ -112,7 +115,7 @@ export default function TrailDetail() {
         if (!mounted) return;
 
         if (shouldUseAuth) {
-          router.replace('/auth');
+          router.replace({ pathname: '/auth', params: { returnTo: trailId ? `/trail/${trailId}` : '/passport' } });
           return;
         }
 

@@ -115,6 +115,8 @@ export interface TrailItem {
   venue?: Venue;
   city?: CityLocation;
   title?: string;
+  style?: BeerStyle;
+  checkedAt?: string;
   note?: string;
   createdAt: string;
 }
