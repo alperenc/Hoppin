@@ -48,7 +48,7 @@ export default function PublicProfile() {
       setFollowers(countSet.followers);
       setFollowing(countSet.following);
       setCheckins(publicFeed);
-      setTrails(profileTrails.filter((trail) => trail.privacy === 'public' || trail.profileId === currentProfile.id));
+      setTrails(profileTrails);
       setIsFollowingProfile(nextIsFollowing);
       setLoading(false);
     };
@@ -107,75 +107,80 @@ export default function PublicProfile() {
 
   const isOwnProfile = me?.id === profile.id;
 
-  return (
-    <View style={styles.container}>
-      <View style={styles.profileHeader}>
-        <View style={styles.avatar}>
-          {profile.avatarUrl ? (
-            <RNImage source={{ uri: profile.avatarUrl }} style={styles.avatarImage} />
-          ) : (
-            <Text style={styles.avatarText}>{profile.displayName.slice(0, 1).toUpperCase()}</Text>
-          )}
+  const renderProfileHeader = () => (
+    <View>
+      <View style={styles.headerContent}>
+        <View style={styles.profileHeader}>
+          <View style={styles.avatar}>
+            {profile.avatarUrl ? (
+              <RNImage source={{ uri: profile.avatarUrl }} style={styles.avatarImage} />
+            ) : (
+              <Text style={styles.avatarText}>{profile.displayName.slice(0, 1).toUpperCase()}</Text>
+            )}
+          </View>
+          <View style={styles.profileCopy}>
+            <Text style={styles.title}>{profile.displayName}</Text>
+            <Text style={styles.subtitle}>
+              @{profile.username} · {profile.isCreator ? 'influencer profile' : 'explorer profile'}
+            </Text>
+          </View>
         </View>
-        <View style={styles.profileCopy}>
-          <Text style={styles.title}>{profile.displayName}</Text>
-          <Text style={styles.subtitle}>
-            @{profile.username} · {profile.isCreator ? 'influencer profile' : 'explorer profile'}
-          </Text>
+        <View style={styles.metrics}>
+          <Text style={styles.metricLabel}>Followers: {followers}</Text>
+          <Text style={styles.metricLabel}>Following: {following}</Text>
+          <Text style={styles.metricLabel}>Check-ins: {checkins.length}</Text>
         </View>
+
+        {!isOwnProfile ? (
+          <TouchableOpacity
+            onPress={toggleFollow}
+            style={[styles.cta, isFollowingProfile ? styles.followingButton : styles.secondary]}
+          >
+            <Text style={styles.ctaText}>{isFollowingProfile ? 'Following' : 'Follow'}</Text>
+          </TouchableOpacity>
+        ) : null}
+
+        {trails.length ? (
+          <View style={styles.trailList}>
+            <Text style={styles.sectionTitle}>{isOwnProfile ? 'Trails' : 'Visible trails'}</Text>
+            {trails.map((trail) => (
+              <TouchableOpacity key={trail.id} style={styles.card} onPress={() => router.push(`/trail/${trail.id}`)}>
+                <Text style={styles.cardHeader}>{trail.title}</Text>
+                <Text style={styles.cardTag}>{checkinVisibilityLabel(trail.privacy)} · {trail.itemCount} stops</Text>
+                {trail.description ? <Text style={styles.note}>{trail.description}</Text> : null}
+              </TouchableOpacity>
+            ))}
+          </View>
+        ) : null}
+
+        <Text style={styles.sectionTitle}>Public check-ins</Text>
       </View>
-      <View style={styles.metrics}>
-        <Text style={styles.metricLabel}>Followers: {followers}</Text>
-        <Text style={styles.metricLabel}>Following: {following}</Text>
-        <Text style={styles.metricLabel}>Check-ins: {checkins.length}</Text>
-      </View>
-
-      {!isOwnProfile ? (
-        <TouchableOpacity
-          onPress={toggleFollow}
-          style={[styles.cta, isFollowingProfile ? styles.followingButton : styles.secondary]}
-        >
-          <Text style={styles.ctaText}>{isFollowingProfile ? 'Following' : 'Follow'}</Text>
-        </TouchableOpacity>
-      ) : null}
-
-      {trails.length ? (
-        <View style={styles.trailList}>
-          <Text style={styles.sectionTitle}>Public trails</Text>
-          {trails.map((trail) => (
-            <TouchableOpacity key={trail.id} style={styles.card} onPress={() => router.push(`/trail/${trail.id}`)}>
-              <Text style={styles.cardHeader}>{trail.title}</Text>
-              <Text style={styles.cardTag}>{checkinVisibilityLabel(trail.privacy)} · {trail.itemCount} stops</Text>
-              {trail.description ? <Text style={styles.note}>{trail.description}</Text> : null}
-            </TouchableOpacity>
-          ))}
-        </View>
-      ) : null}
-
-      <Text style={styles.sectionTitle}>Public check-ins</Text>
-      {checkins.length === 0 ? (
-        <Text style={styles.empty}>No public check-ins to show yet.</Text>
-      ) : (
-        <FlatList
-          data={checkins}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item: checkin }) => (
-            <View style={styles.card}>
-              {checkin.media?.[0] ? <RNImage source={{ uri: checkin.media[0] }} style={styles.checkinPhoto} /> : null}
-              <Text style={styles.cardHeader}>{checkin.beer.name}</Text>
-              <Text style={styles.cardTag}>
-                {checkin.scope === 'venue' ? 'Venue' : 'City'} · {checkinVisibilityLabel(checkin.privacy)}
-              </Text>
-              <Text style={styles.cardMeta}>
-                {checkin.scope === 'venue' && checkin.venue ? `${checkin.venue.name} · ${checkin.venue.city}` : `${checkin.city?.city}, ${checkin.city?.country}`}
-              </Text>
-              {!!checkin.rating ? <Text style={styles.cardMeta}>Rating: {checkin.rating}/5</Text> : null}
-              {!!checkin.note ? <Text style={styles.note}>{checkin.note}</Text> : null}
-            </View>
-          )}
-        />
-      )}
     </View>
+  );
+
+  return (
+    <FlatList
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      data={checkins}
+      keyExtractor={(item) => item.id}
+      ListHeaderComponent={renderProfileHeader}
+      ListEmptyComponent={<Text style={styles.empty}>No public check-ins to show yet.</Text>}
+      renderItem={({ item: checkin }) => (
+        <View style={styles.card}>
+          {checkin.media?.[0] ? <RNImage source={{ uri: checkin.media[0] }} style={styles.checkinPhoto} /> : null}
+          <Text style={styles.cardHeader}>{checkin.beer.name}</Text>
+          <Text style={styles.cardTag}>
+            {checkin.scope === 'venue' ? 'Venue' : 'City'} · {checkinVisibilityLabel(checkin.privacy)}
+          </Text>
+          <Text style={styles.cardMeta}>
+            {checkin.scope === 'venue' && checkin.venue ? `${checkin.venue.name} · ${checkin.venue.city}` : `${checkin.city?.city}, ${checkin.city?.country}`}
+          </Text>
+          {!!checkin.rating ? <Text style={styles.cardMeta}>Rating: {checkin.rating}/5</Text> : null}
+          {!!checkin.note ? <Text style={styles.note}>{checkin.note}</Text> : null}
+        </View>
+      )}
+    />
   );
 }
 
@@ -194,8 +199,14 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#071022',
+  },
+  content: {
     padding: 16,
     paddingTop: 48,
+    paddingBottom: 32,
+  },
+  headerContent: {
+    marginBottom: 4,
   },
   profileHeader: {
     alignItems: 'center',

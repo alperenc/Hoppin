@@ -2090,23 +2090,38 @@ export async function listMyTrails(profileId?: Id): Promise<Trail[]> {
   return mapDbTrailsWithItems((data ?? []) as DbTrailRow[]);
 }
 
-export async function listDiscoverTrails(viewerId?: Id): Promise<Trail[]> {
+type DiscoverTrailOptions = {
+  privacy?: 'public' | 'visible';
+  limit?: number;
+};
+
+export async function listDiscoverTrails(viewerId?: Id, options: DiscoverTrailOptions = {}): Promise<Trail[]> {
   const resolvedViewerId = await resolveProfileId(viewerId);
+  const privacy = options.privacy ?? 'visible';
+  const limit = options.limit ?? 12;
 
   if (!(await canUseSupabaseBackend())) {
     return trails
-      .filter((trail) => trail.profileId !== resolvedViewerId && canViewTrail(trail, resolvedViewerId) && trail.privacy !== 'private')
+      .filter((trail) => {
+        if (trail.profileId === resolvedViewerId) return false;
+        if (!canViewTrail(trail, resolvedViewerId)) return false;
+        return privacy === 'public' ? trail.privacy === 'public' : trail.privacy !== 'private';
+      })
       .map(cloneTrail)
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .slice(0, limit);
   }
 
-  const { data, error } = await supabase
+  let query = supabase
     .from('trails')
     .select(trailSelect)
     .neq('profile_id', resolvedViewerId)
-    .neq('privacy', 'private')
     .order('updated_at', { ascending: false })
-    .limit(12);
+    .limit(limit);
+
+  query = privacy === 'public' ? query.eq('privacy', 'public') : query.neq('privacy', 'private');
+
+  const { data, error } = await query;
 
   if (error) throw new Error(error.message);
   return mapDbTrailsWithItems((data ?? []) as DbTrailRow[]);
@@ -2200,10 +2215,15 @@ export async function createTrail(input: CreateTrailInput): Promise<Trail> {
   if (error) throw new Error(error.message);
 
   let trail = mapDbTrail(data as DbTrailRow);
-  for (const item of input.items ?? []) {
-    await addTrailItem(trail.id, item);
-    const refreshed = await getTrail(trail.id, profileId);
-    if (refreshed) trail = refreshed;
+  try {
+    for (const item of input.items ?? []) {
+      await addTrailItem(trail.id, item);
+      const refreshed = await getTrail(trail.id, profileId);
+      if (refreshed) trail = refreshed;
+    }
+  } catch (error) {
+    await supabase.from('trails').delete().eq('id', trail.id);
+    throw error;
   }
 
   return trail;

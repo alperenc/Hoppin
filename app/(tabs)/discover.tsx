@@ -110,7 +110,7 @@ export default function Discover() {
       ]);
       const [discoveryFeed, discoverTrails] = await Promise.all([
         listForYouFeed(currentProfile.id),
-        listDiscoverTrails(currentProfile.id),
+        listDiscoverTrails(currentProfile.id, { privacy: 'public', limit: 6 }),
       ]);
 
       if (!isMountedRef.current || requestId !== requestIdRef.current) {
@@ -124,7 +124,7 @@ export default function Discover() {
           .filter((item) => item.checkin.profileId !== currentProfile.id && item.checkin.privacy === 'public')
           .slice(0, 6)
       );
-      setTrails(discoverTrails.filter((trail) => trail.privacy === 'public').slice(0, 6));
+      setTrails(discoverTrails);
       setFollowedIds(followed.map((profile) => profile.id));
       setFollowerIds(followers.map((profile) => profile.id));
       setErrorMessage(undefined);

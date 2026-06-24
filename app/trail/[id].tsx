@@ -11,6 +11,7 @@ import {
   reorderTrailItems,
   updateTrail,
 } from '@/src/lib/hoppin';
+import { resolveProtectedRoute, shouldRouteErrorToAuth } from '@/src/lib/sessionRouting';
 import { PrivacyLevel, Profile, Trail } from '@/src/types/hoppin';
 
 const privacyOptions: PrivacyLevel[] = ['private', 'followers', 'public'];
@@ -51,9 +52,12 @@ export default function TrailDetail() {
   const [draftTitle, setDraftTitle] = useState('');
   const [draftDescription, setDraftDescription] = useState('');
   const [draftPrivacy, setDraftPrivacy] = useState<PrivacyLevel>('private');
+  const [isRouteReady, setIsRouteReady] = useState(false);
+  const [routeError, setRouteError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   const load = useCallback(async () => {
-    if (!trailId) return;
+    if (!trailId || !isRouteReady) return;
     setIsLoading(true);
     try {
       const [profile, nextTrail] = await Promise.all([getCurrentProfile(), getTrail(trailId)]);
@@ -72,7 +76,7 @@ export default function TrailDetail() {
         setIsLoading(false);
       }
     }
-  }, [trailId]);
+  }, [isRouteReady, trailId]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -81,6 +85,48 @@ export default function TrailDetail() {
       isMountedRef.current = false;
     };
   }, [load]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const resolve = async () => {
+      setRouteError(false);
+      try {
+        const route = await resolveProtectedRoute();
+        if (!mounted) return;
+
+        if (route.status === 'redirect') {
+          const returnTo = trailId ? `/trail/${trailId}` : '/passport';
+          if (route.destination === '/onboarding') {
+            router.replace({ pathname: '/onboarding', params: { returnTo } });
+            return;
+          }
+
+          router.replace(route.destination);
+          return;
+        }
+
+        setIsRouteReady(true);
+      } catch {
+        const shouldUseAuth = await shouldRouteErrorToAuth();
+        if (!mounted) return;
+
+        if (shouldUseAuth) {
+          router.replace('/auth');
+          return;
+        }
+
+        setRouteError(true);
+        setIsLoading(false);
+      }
+    };
+
+    void resolve();
+
+    return () => {
+      mounted = false;
+    };
+  }, [attempt, router, trailId]);
 
   const isOwner = Boolean(me && trail && me.id === trail.profileId);
   const hasChanges = useMemo(() => {
@@ -150,7 +196,27 @@ export default function TrailDetail() {
     }
   };
 
-  if (isLoading) {
+  if (routeError) {
+    return (
+      <View style={styles.loadingWrap}>
+        <Text style={styles.errorTitle}>Could not load trail</Text>
+        <Text style={styles.errorText}>Your session is active, but Hoppin could not load the trail state.</Text>
+        <TouchableOpacity
+          style={styles.secondaryButton}
+          onPress={() => {
+            setIsRouteReady(false);
+            setRouteError(false);
+            setIsLoading(true);
+            setAttempt((current) => current + 1);
+          }}
+        >
+          <Text style={styles.secondaryButtonText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (!isRouteReady || isLoading) {
     return (
       <View style={styles.loadingWrap}>
         <ActivityIndicator size="large" color="#38bdf8" />
@@ -355,6 +421,16 @@ const styles = StyleSheet.create({
     color: '#f8fafc',
     fontSize: 20,
     fontWeight: '900',
+  },
+  errorTitle: {
+    color: '#f8fafc',
+    fontSize: 20,
+    fontWeight: '900',
+  },
+  errorText: {
+    color: '#94a3b8',
+    lineHeight: 20,
+    textAlign: 'center',
   },
   emptyText: {
     color: '#94a3b8',
