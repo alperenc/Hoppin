@@ -363,7 +363,6 @@ export function CityPassportMap({
     return (
       <View style={styles.map}>
         <View style={styles.emptyState}>
-          <Text style={styles.mapKicker}>{stamps.length} city stamps</Text>
           <Text style={styles.mapTitle}>Map unavailable</Text>
           <Text style={styles.mapMeta}>{message}</Text>
         </View>
@@ -381,13 +380,12 @@ export function CityPassportMap({
       })}
 
       <View style={styles.mapCopy}>
-        <Text style={styles.mapKicker}>{stamps.length} city stamps</Text>
         <Text style={styles.mapTitle}>
           {selectedStamp ? `${selectedStamp.city}, ${selectedStamp.country}` : emptyMapTitle ?? 'Your beer map is waiting'}
         </Text>
         <Text style={styles.mapMeta}>
           {selectedStamp
-            ? `${selectedStamp.count} check-ins saved here`
+            ? `${selectedStamp.count} stamps saved here`
             : emptyMapMeta ?? 'Stamp a pour with a city to light up the passport.'}
         </Text>
       </View>
@@ -415,12 +413,6 @@ const styles = StyleSheet.create({
     borderColor: '#1e3a5f',
     borderWidth: 1,
     padding: 12,
-  },
-  mapKicker: {
-    color: '#7dd3fc',
-    fontSize: 11,
-    fontWeight: '800',
-    textTransform: 'uppercase',
   },
   mapTitle: {
     color: '#f8fafc',

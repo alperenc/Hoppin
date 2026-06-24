@@ -2,9 +2,17 @@ import { useCallback, useMemo, useState } from 'react';
 import { FlatList, Image as RNImage, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Link, useFocusEffect } from 'expo-router';
 import { Beer, MapPin, Plus, Sparkles, Star, UsersRound } from 'lucide-react-native';
+import { PassportMapPanel } from '@/src/components/PassportMapPanel';
 import { useWebPullToRefresh } from '@/src/components/useWebPullToRefresh';
-import { checkinVisibilityLabel, getCurrentProfile, listForYouFeed } from '@/src/lib/hoppin';
-import { FollowFeedItem, Profile } from '@/src/types/hoppin';
+import {
+  checkinVisibilityLabel,
+  getCurrentProfile,
+  getPassportSummary,
+  listCityTrips,
+  listForYouFeed,
+  listPassportStamps,
+} from '@/src/lib/hoppin';
+import { CityStamp, CityVisit, FollowFeedItem, PassportSummary, Profile } from '@/src/types/hoppin';
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
   month: 'short',
@@ -33,6 +41,8 @@ function locationLabel(item: FollowFeedItem): string {
   return 'Passport stamp';
 }
 
+const cityKey = (city: string, country: string) => `${city.toLowerCase()}-${country.toLowerCase()}`;
+
 function reasonLabel(item: FollowFeedItem, me?: Profile | null): string {
   if (item.checkin.profileId === me?.id) return 'Your latest stamp';
   if (item.followed) return 'From your crew';
@@ -49,6 +59,10 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [me, setMe] = useState<Profile | null>(null);
+  const [summary, setSummary] = useState<PassportSummary | null>(null);
+  const [stamps, setStamps] = useState<CityStamp[]>([]);
+  const [trips, setTrips] = useState<CityVisit[]>([]);
+  const [selectedVisit, setSelectedVisit] = useState<CityVisit | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>();
 
   const load = useCallback(async (mode: 'initial' | 'refresh' = 'initial') => {
@@ -60,9 +74,23 @@ export default function Home() {
 
     try {
       const profile = await getCurrentProfile();
-      const nextFeed = await listForYouFeed(profile.id);
+      const [nextFeed, passportSummary, passportStamps, cityTrips] = await Promise.all([
+        listForYouFeed(profile.id),
+        getPassportSummary(profile.id),
+        listPassportStamps(profile.id),
+        listCityTrips(profile.id),
+      ]);
       setMe(profile);
       setFeed(nextFeed);
+      setSummary(passportSummary);
+      setStamps(passportStamps);
+      setTrips(cityTrips);
+      setSelectedVisit((current) => {
+        if (current && cityTrips.some((trip) => trip.city === current.city && trip.country === current.country)) {
+          return current;
+        }
+        return cityTrips[0] ?? null;
+      });
       setErrorMessage(undefined);
     } catch {
       setErrorMessage('Could not refresh your tap trail.');
@@ -79,10 +107,24 @@ export default function Home() {
       const refresh = async () => {
         try {
           const profile = await getCurrentProfile();
-          const nextFeed = await listForYouFeed(profile.id);
+          const [nextFeed, passportSummary, passportStamps, cityTrips] = await Promise.all([
+            listForYouFeed(profile.id),
+            getPassportSummary(profile.id),
+            listPassportStamps(profile.id),
+            listCityTrips(profile.id),
+          ]);
           if (!active) return;
           setMe(profile);
           setFeed(nextFeed);
+          setSummary(passportSummary);
+          setStamps(passportStamps);
+          setTrips(cityTrips);
+          setSelectedVisit((current) => {
+            if (current && cityTrips.some((trip) => trip.city === current.city && trip.country === current.country)) {
+              return current;
+            }
+            return cityTrips[0] ?? null;
+          });
           setErrorMessage(undefined);
         } catch {
           if (active) {
@@ -118,6 +160,18 @@ export default function Home() {
       creators: creators.size,
     };
   }, [feed]);
+
+  const cityMapByKey = useMemo(() => {
+    const index = new Map<string, CityVisit>();
+    for (const trip of trips) {
+      index.set(cityKey(trip.city, trip.country), trip);
+    }
+    return index;
+  }, [trips]);
+
+  const mapReadyStamps = useMemo<CityStamp[]>(() => {
+    return stamps.filter((stamp) => Number.isFinite(stamp.lat) && Number.isFinite(stamp.lng));
+  }, [stamps]);
 
   const refreshFeed = useCallback(() => {
     void load('refresh');
@@ -183,8 +237,8 @@ export default function Home() {
           <Sparkles color="#facc15" size={16} />
           <Text style={styles.kicker}>For you</Text>
         </View>
-        <Text style={styles.title}>{me ? `${me.displayName}'s tap trail` : 'Your tap trail'}</Text>
-        <Text style={styles.subtitle}>Fresh pours from your crew first, then public stamps that match where and what you like.</Text>
+        <Text style={styles.title}>{me ? `${me.displayName}'s passport` : 'Your beer passport'}</Text>
+        <Text style={styles.subtitle}>Every pour becomes a stamp on your map. Save the standouts into trails you can revisit or share.</Text>
         <View style={styles.heroActions}>
           <Link href="/checkin" asChild>
             <TouchableOpacity style={styles.primaryAction}>
@@ -201,18 +255,27 @@ export default function Home() {
         </View>
       </View>
 
+      <View style={[styles.card, styles.mapCard]}>
+        <PassportMapPanel
+          cityMapByKey={cityMapByKey}
+          selectedVisit={selectedVisit}
+          stamps={mapReadyStamps}
+          onSelectVisit={setSelectedVisit}
+        />
+      </View>
+
       <View style={styles.statsRow}>
         <View style={styles.statCard}>
-          <Text style={styles.statValue}>{feed.length}</Text>
-          <Text style={styles.statLabel}>stamps</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statValue}>{feedStats.followed}</Text>
-          <Text style={styles.statLabel}>from crew</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statValue}>{feedStats.countries}</Text>
+          <Text style={styles.statValue}>{summary?.countriesCount ?? 0}</Text>
           <Text style={styles.statLabel}>countries</Text>
+        </View>
+        <View style={styles.statCard}>
+          <Text style={styles.statValue}>{summary?.citiesCount ?? 0}</Text>
+          <Text style={styles.statLabel}>cities</Text>
+        </View>
+        <View style={styles.statCard}>
+          <Text style={styles.statValue}>{summary?.checkinsCount ?? 0}</Text>
+          <Text style={styles.statLabel}>stamps</Text>
         </View>
       </View>
 
@@ -227,7 +290,7 @@ export default function Home() {
       ) : null}
 
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Latest stamps</Text>
+        <Text style={styles.sectionTitle}>Latest stamps and trails</Text>
         <Text style={styles.sectionMeta}>{feedStats.creators} people</Text>
       </View>
     </View>
@@ -255,8 +318,8 @@ export default function Home() {
       {...webPullHandlers}
       ListEmptyComponent={
         <View style={styles.emptyCard}>
-          <Text style={styles.emptyTitle}>No stamps in your trail yet.</Text>
-          <Text style={styles.emptyText}>Follow a creator or stamp a pour to wake up the feed.</Text>
+          <Text style={styles.emptyTitle}>No stamps in your passport yet.</Text>
+          <Text style={styles.emptyText}>Stamp a pour to start filling the map, then follow creators for trails worth saving.</Text>
           <Link href="/checkin" asChild>
             <TouchableOpacity style={styles.emptyAction}>
               <Text style={styles.emptyActionText}>Start with a pour</Text>
@@ -447,6 +510,10 @@ const styles = StyleSheet.create({
     padding: 14,
     marginBottom: 12,
     gap: 9,
+  },
+  mapCard: {
+    padding: 6,
+    marginBottom: 10,
   },
   cardHeader: {
     flexDirection: 'row',
