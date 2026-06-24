@@ -11,6 +11,8 @@ export type MapRegion = {
 
 type CityPassportMapProps = {
   cityMapByKey: Map<string, CityVisit>;
+  emptyMapMeta?: string;
+  emptyMapTitle?: string;
   region: MapRegion;
   selectedVisit: CityVisit | null;
   stamps: CityStamp[];
@@ -101,6 +103,18 @@ const mapCanvasStyle: CSSProperties = {
   height: 258,
   minHeight: 258,
   width: '100%',
+};
+
+const zoomFromRegion = (region: MapRegion) => {
+  const delta = Math.max(region.latitudeDelta, region.longitudeDelta);
+  if (delta <= 0.08) return 13;
+  if (delta <= 0.2) return 12;
+  if (delta <= 0.5) return 11;
+  if (delta <= 1) return 10;
+  if (delta <= 4) return 8;
+  if (delta <= 12) return 6;
+  if (delta <= 45) return 4;
+  return 2;
 };
 
 const markerIcon = (maps: GoogleMapsNamespace, selected: boolean) => ({
@@ -202,6 +216,8 @@ const loadGoogleMaps = () => {
 
 export function CityPassportMap({
   cityMapByKey,
+  emptyMapMeta,
+  emptyMapTitle,
   region,
   selectedVisit,
   stamps,
@@ -269,7 +285,7 @@ export function CityPassportMap({
           strictBounds: false,
         },
         streetViewControl: false,
-        zoom: 2,
+        zoom: zoomFromRegion(region),
         zoomControl: true,
         zoomControlOptions,
       });
@@ -293,7 +309,7 @@ export function CityPassportMap({
 
     if (!stamps.length) {
       mapRef.current.setCenter({ lat: region.latitude, lng: region.longitude });
-      mapRef.current.setZoom(2);
+      mapRef.current.setZoom(zoomFromRegion(region));
       return;
     }
 
@@ -367,12 +383,12 @@ export function CityPassportMap({
       <View style={styles.mapCopy}>
         <Text style={styles.mapKicker}>{stamps.length} city stamps</Text>
         <Text style={styles.mapTitle}>
-          {selectedStamp ? `${selectedStamp.city}, ${selectedStamp.country}` : 'Your beer map is waiting'}
+          {selectedStamp ? `${selectedStamp.city}, ${selectedStamp.country}` : emptyMapTitle ?? 'Your beer map is waiting'}
         </Text>
         <Text style={styles.mapMeta}>
           {selectedStamp
             ? `${selectedStamp.count} check-ins saved here`
-            : 'Stamp a pour with a city to light up the passport.'}
+            : emptyMapMeta ?? 'Stamp a pour with a city to light up the passport.'}
         </Text>
       </View>
     </View>
