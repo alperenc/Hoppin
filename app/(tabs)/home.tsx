@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
-import { FlatList, Image as RNImage, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { FlatList, Image as RNImage, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Link, useFocusEffect } from 'expo-router';
-import { Beer, MapPin, Plus, Sparkles, Star, UsersRound } from 'lucide-react-native';
+import { Beer, Map as MapIcon, MapPin, Plus, Sparkles, Star } from 'lucide-react-native';
 import { PassportMapPanel } from '@/src/components/PassportMapPanel';
 import { useWebPullToRefresh } from '@/src/components/useWebPullToRefresh';
 import {
@@ -45,14 +45,27 @@ const cityKey = (city: string, country: string) => `${city.toLowerCase()}-${coun
 
 function reasonLabel(item: FollowFeedItem, me?: Profile | null): string {
   if (item.checkin.profileId === me?.id) return 'Your latest stamp';
-  if (item.followed) return 'From your crew';
-  return 'Open tap';
+  return 'Saved stamp';
 }
 
 function ratingLabel(rating?: number): string {
   if (!rating) return 'Unrated';
   return `${rating}/5`;
 }
+
+function stampCountLabel(count: number): string {
+  return `${count} ${count === 1 ? 'stamp' : 'stamps'}`;
+}
+
+type LeadRecommendation =
+  | {
+      kind: 'trail';
+      trip: CityVisit;
+    }
+  | {
+      kind: 'stamp';
+      item: FollowFeedItem;
+    };
 
 export default function Home() {
   const [feed, setFeed] = useState<FollowFeedItem[]>([]);
@@ -81,7 +94,7 @@ export default function Home() {
         listCityTrips(profile.id),
       ]);
       setMe(profile);
-      setFeed(nextFeed);
+      setFeed(nextFeed.filter((item) => item.checkin.profileId === profile.id));
       setSummary(passportSummary);
       setStamps(passportStamps);
       setTrips(cityTrips);
@@ -115,7 +128,7 @@ export default function Home() {
           ]);
           if (!active) return;
           setMe(profile);
-          setFeed(nextFeed);
+          setFeed(nextFeed.filter((item) => item.checkin.profileId === profile.id));
           setSummary(passportSummary);
           setStamps(passportStamps);
           setTrips(cityTrips);
@@ -146,21 +159,6 @@ export default function Home() {
     }, [])
   );
 
-  const feedStats = useMemo(() => {
-    const followed = feed.filter((item) => item.followed).length;
-    const countries = new Set(
-      feed
-        .map((item) => item.checkin.city?.country ?? item.checkin.venue?.country)
-        .filter((country): country is string => Boolean(country))
-    );
-    const creators = new Set(feed.map((item) => item.author.id));
-    return {
-      followed,
-      countries: countries.size,
-      creators: creators.size,
-    };
-  }, [feed]);
-
   const cityMapByKey = useMemo(() => {
     const index = new Map<string, CityVisit>();
     for (const trip of trips) {
@@ -183,6 +181,17 @@ export default function Home() {
   });
 
   const leadItem = feed[0];
+  const leadRecommendation = useMemo<LeadRecommendation | null>(() => {
+    const trail = trips.find((trip) => trip.checkinCount > 1);
+    if (trail) {
+      return { kind: 'trail', trip: trail };
+    }
+    if (leadItem) {
+      return { kind: 'stamp', item: leadItem };
+    }
+    return null;
+  }, [leadItem, trips]);
+  const userTrails = useMemo(() => trips.slice(0, 3), [trips]);
 
   const renderStamp = ({ item }: { item: FollowFeedItem }) => {
     const { checkin, author } = item;
@@ -248,8 +257,8 @@ export default function Home() {
           </Link>
           <Link href="/discover" asChild>
             <TouchableOpacity style={styles.secondaryAction}>
-              <UsersRound color="#bae6fd" size={18} />
-              <Text style={styles.secondaryActionText}>Find your crew</Text>
+              <MapIcon color="#bae6fd" size={18} />
+              <Text style={styles.secondaryActionText}>Explore trails</Text>
             </TouchableOpacity>
           </Link>
         </View>
@@ -281,17 +290,51 @@ export default function Home() {
 
       {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
 
-      {leadItem ? (
+      {leadRecommendation ? (
         <View style={styles.lead}>
-          <Text style={styles.leadKicker}>Next worth opening</Text>
-          <Text style={styles.leadTitle}>{leadItem.checkin.beer.name}</Text>
-          <Text style={styles.leadMeta}>{locationLabel(leadItem)} - {reasonLabel(leadItem, me)}</Text>
+          <View style={styles.leadTopRow}>
+            <Text style={styles.leadKicker}>Next worth opening</Text>
+            <Text style={styles.leadType}>{leadRecommendation.kind === 'trail' ? 'Trail' : 'Stamp'}</Text>
+          </View>
+          <Text style={styles.leadTitle}>
+            {leadRecommendation.kind === 'trail'
+              ? `${leadRecommendation.trip.city} trail`
+              : leadRecommendation.item.checkin.beer.name}
+          </Text>
+          <Text style={styles.leadMeta}>
+            {leadRecommendation.kind === 'trail'
+              ? `${stampCountLabel(leadRecommendation.trip.checkinCount)} in ${leadRecommendation.trip.country}`
+              : `${locationLabel(leadRecommendation.item)} - ${reasonLabel(leadRecommendation.item, me)}`}
+          </Text>
+        </View>
+      ) : null}
+
+      {userTrails.length ? (
+        <View style={styles.trailsBlock}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Your trails</Text>
+            <Text style={styles.sectionMeta}>{userTrails.length} recent</Text>
+          </View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.trailRow}
+          >
+            {userTrails.map((trail) => (
+              <View key={`${trail.city}-${trail.country}`} style={styles.trailCard}>
+                <Text style={styles.trailLabel}>Trail</Text>
+                <Text style={styles.trailTitle}>{trail.city}</Text>
+                <Text style={styles.trailMeta}>{stampCountLabel(trail.checkinCount)} - {trail.country}</Text>
+                <Text style={styles.trailDate}>Updated {formatDate(trail.lastVisitedAt)}</Text>
+              </View>
+            ))}
+          </ScrollView>
         </View>
       ) : null}
 
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Latest stamps and trails</Text>
-        <Text style={styles.sectionMeta}>{feedStats.creators} people</Text>
+        <Text style={styles.sectionTitle}>Your latest stamps</Text>
+        <Text style={styles.sectionMeta}>{feed.length} stamps</Text>
       </View>
     </View>
   );
@@ -301,7 +344,7 @@ export default function Home() {
       <View style={styles.loadingWrap}>
         <Sparkles color="#facc15" size={22} />
         <Text style={styles.loadingTitle}>Pouring your feed...</Text>
-        <Text style={styles.loadingText}>Finding stamps from your crew and nearby beer trails.</Text>
+        <Text style={styles.loadingText}>Loading your stamps, map, and saved trail signals.</Text>
       </View>
     );
   }
@@ -319,7 +362,7 @@ export default function Home() {
       ListEmptyComponent={
         <View style={styles.emptyCard}>
           <Text style={styles.emptyTitle}>No stamps in your passport yet.</Text>
-          <Text style={styles.emptyText}>Stamp a pour to start filling the map, then follow creators for trails worth saving.</Text>
+          <Text style={styles.emptyText}>Stamp a pour to start filling your map and shaping your first trail.</Text>
           <Link href="/checkin" asChild>
             <TouchableOpacity style={styles.emptyAction}>
               <Text style={styles.emptyActionText}>Start with a pour</Text>
@@ -461,11 +504,27 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     backgroundColor: '#10251c',
   },
+  leadTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
   leadKicker: {
     color: '#86efac',
     fontWeight: '900',
     fontSize: 12,
     textTransform: 'uppercase',
+  },
+  leadType: {
+    color: '#052e16',
+    backgroundColor: '#86efac',
+    borderRadius: 999,
+    overflow: 'hidden',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    fontSize: 12,
+    fontWeight: '900',
   },
   leadTitle: {
     color: '#f8fafc',
@@ -491,6 +550,51 @@ const styles = StyleSheet.create({
   },
   sectionMeta: {
     color: '#94a3b8',
+  },
+  trailsBlock: {
+    marginBottom: 16,
+  },
+  trailRow: {
+    gap: 10,
+    paddingRight: 4,
+  },
+  trailCard: {
+    width: 164,
+    minHeight: 118,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#1f3a5f',
+    backgroundColor: '#0c1a2e',
+    padding: 12,
+  },
+  trailLabel: {
+    alignSelf: 'flex-start',
+    borderRadius: 999,
+    overflow: 'hidden',
+    backgroundColor: '#172554',
+    color: '#bae6fd',
+    fontSize: 11,
+    fontWeight: '900',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    textTransform: 'uppercase',
+  },
+  trailTitle: {
+    color: '#f8fafc',
+    fontSize: 17,
+    fontWeight: '900',
+    marginTop: 10,
+  },
+  trailMeta: {
+    color: '#cbd5e1',
+    marginTop: 5,
+    fontSize: 12,
+  },
+  trailDate: {
+    color: '#7dd3fc',
+    marginTop: 10,
+    fontSize: 12,
+    fontWeight: '800',
   },
   errorText: {
     color: '#fca5a5',
