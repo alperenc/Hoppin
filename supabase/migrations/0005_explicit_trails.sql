@@ -173,3 +173,57 @@ create policy "Trail owners can delete trail items" on public.trail_items
         and trails.profile_id = auth.uid()
     )
   );
+
+create or replace function public.reorder_trail_items(p_trail_id uuid, p_item_ids uuid[])
+returns void
+language plpgsql
+as $$
+declare
+  expected_count integer;
+begin
+  if not exists (
+    select 1
+    from public.trails
+    where id = p_trail_id
+      and profile_id = auth.uid()
+  ) then
+    raise exception 'Trail not found or not owned by current user.';
+  end if;
+
+  select count(*) into expected_count
+  from public.trail_items
+  where trail_id = p_trail_id;
+
+  if expected_count <> coalesce(array_length(p_item_ids, 1), 0) then
+    raise exception 'Trail item order must include every trail item.';
+  end if;
+
+  if exists (
+    select 1
+    from unnest(p_item_ids) as ordered(item_id)
+    group by ordered.item_id
+    having count(*) > 1
+  ) then
+    raise exception 'Trail item order cannot contain duplicate items.';
+  end if;
+
+  if exists (
+    select 1
+    from unnest(p_item_ids) with ordinality as ordered(item_id, item_position)
+    left join public.trail_items ti on ti.id = ordered.item_id and ti.trail_id = p_trail_id
+    where ti.id is null
+  ) then
+    raise exception 'Trail item order contains an item outside this trail.';
+  end if;
+
+  update public.trail_items ti
+  set position = ordered.item_position - 1
+  from unnest(p_item_ids) with ordinality as ordered(item_id, item_position)
+  where ti.id = ordered.item_id
+    and ti.trail_id = p_trail_id;
+
+  update public.trails
+  set updated_at = now()
+  where id = p_trail_id;
+end;
+$$;

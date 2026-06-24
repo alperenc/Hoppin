@@ -2420,15 +2420,12 @@ export async function reorderTrailItems(trailId: Id, itemIds: Id[]): Promise<Tra
     return cloneTrail(trails.find((trail) => trail.id === trailId)!);
   }
 
-  for (const item of nextItems) {
-    const { error } = await supabase
-      .from('trail_items')
-      .update({ position: item.position })
-      .eq('id', item.id)
-      .eq('trail_id', trailId);
-    if (error) throw new Error(error.message);
-  }
-  await supabase.from('trails').update({ updated_at: now() }).eq('id', trailId);
+  const { error } = await supabase.rpc('reorder_trail_items', {
+    p_trail_id: trailId,
+    p_item_ids: nextItems.map((item) => item.id),
+  });
+  if (error) throw new Error(error.message);
+
   const refreshed = await getTrail(trailId);
   if (!refreshed) throw new Error('Trail not found.');
   return refreshed;

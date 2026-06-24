@@ -115,7 +115,7 @@ export default function NewTrail() {
             return;
           }
 
-          router.replace(route.destination);
+          router.replace(route.destination === '/auth' ? { pathname: '/auth', params: { returnTo: '/trail/new' } } : route.destination);
           return;
         }
 
@@ -125,7 +125,7 @@ export default function NewTrail() {
         if (!mounted) return;
 
         if (shouldUseAuth) {
-          router.replace('/auth');
+          router.replace({ pathname: '/auth', params: { returnTo: '/trail/new' } });
           return;
         }
 
