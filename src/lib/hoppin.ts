@@ -2112,6 +2112,27 @@ export async function listDiscoverTrails(viewerId?: Id): Promise<Trail[]> {
   return mapDbTrailsWithItems((data ?? []) as DbTrailRow[]);
 }
 
+export async function listProfileTrails(profileId: Id, viewerId?: Id): Promise<Trail[]> {
+  const resolvedProfileId = await resolveProfileId(profileId);
+  const resolvedViewerId = viewerId ? await resolveProfileId(viewerId) : await resolveProfileId();
+
+  if (!(await canUseSupabaseBackend())) {
+    return trails
+      .filter((trail) => trail.profileId === resolvedProfileId && canViewTrail(trail, resolvedViewerId))
+      .map(cloneTrail)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  const { data, error } = await supabase
+    .from('trails')
+    .select(trailSelect)
+    .eq('profile_id', resolvedProfileId)
+    .order('updated_at', { ascending: false });
+
+  if (error) throw new Error(error.message);
+  return mapDbTrailsWithItems((data ?? []) as DbTrailRow[]);
+}
+
 export async function getTrail(trailId: Id, viewerId?: Id): Promise<Trail | null> {
   const resolvedViewerId = viewerId ? await resolveProfileId(viewerId) : await resolveProfileId();
 

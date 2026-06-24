@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Image as RNImage, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { checkinVisibilityLabel, followProfile, getCurrentProfile, getFollowCounts, getFollowedProfiles, getProfileByUsernameOrId, listDiscoverTrails, listMyTrails, listPublicProfileCheckins, unfollowProfile } from '@/src/lib/hoppin';
+import { checkinVisibilityLabel, followProfile, getCurrentProfile, getFollowCounts, getFollowedProfiles, getProfileByUsernameOrId, listMyTrails, listProfileTrails, listPublicProfileCheckins, unfollowProfile } from '@/src/lib/hoppin';
 import { Checkin, Profile, Trail } from '@/src/types/hoppin';
 
 export default function PublicProfile() {
@@ -37,7 +37,7 @@ export default function PublicProfile() {
         targetProfile.id !== currentProfile.id ? getFollowedProfiles(currentProfile.id) : Promise.resolve([]),
         targetProfile.id === currentProfile.id
           ? listMyTrails(targetProfile.id)
-          : listDiscoverTrails(currentProfile.id).then((items) => items.filter((trail) => trail.profileId === targetProfile.id)),
+          : listProfileTrails(targetProfile.id, currentProfile.id),
       ]);
 
       if (!isMounted.current) return;

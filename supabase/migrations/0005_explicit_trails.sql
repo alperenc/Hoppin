@@ -110,6 +110,15 @@ create policy "Trail owners can create trail items" on public.trail_items
       where trails.id = trail_items.trail_id
         and trails.profile_id = auth.uid()
     )
+    and (
+      trail_items.item_type <> 'checkin'
+      or exists (
+        select 1
+        from public.checkins
+        where checkins.id = trail_items.checkin_id
+          and checkins.profile_id = auth.uid()
+      )
+    )
   );
 
 drop policy if exists "Trail owners can update trail items" on public.trail_items;
@@ -121,12 +130,30 @@ create policy "Trail owners can update trail items" on public.trail_items
       where trails.id = trail_items.trail_id
         and trails.profile_id = auth.uid()
     )
+    and (
+      trail_items.item_type <> 'checkin'
+      or exists (
+        select 1
+        from public.checkins
+        where checkins.id = trail_items.checkin_id
+          and checkins.profile_id = auth.uid()
+      )
+    )
   ) with check (
     exists (
       select 1
       from public.trails
       where trails.id = trail_items.trail_id
         and trails.profile_id = auth.uid()
+    )
+    and (
+      trail_items.item_type <> 'checkin'
+      or exists (
+        select 1
+        from public.checkins
+        where checkins.id = trail_items.checkin_id
+          and checkins.profile_id = auth.uid()
+      )
     )
   );
 

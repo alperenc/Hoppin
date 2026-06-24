@@ -9,6 +9,7 @@ import {
   listProfileCheckins,
   listVenueOrCityHints,
 } from '@/src/lib/hoppin';
+import { resolveProtectedRoute, shouldRouteErrorToAuth } from '@/src/lib/sessionRouting';
 import { Checkin, CreateTrailItemInput, LocationHint, PrivacyLevel, Profile, Venue } from '@/src/types/hoppin';
 
 type DraftTrailItem = {
@@ -94,9 +95,52 @@ export default function NewTrail() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
+  const [isRouteReady, setIsRouteReady] = useState(false);
+  const [routeError, setRouteError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const seededCheckinRef = useRef(false);
 
   useEffect(() => {
+    let mounted = true;
+
+    const resolve = async () => {
+      setRouteError(false);
+      try {
+        const route = await resolveProtectedRoute();
+        if (!mounted) return;
+
+        if (route.status === 'redirect') {
+          if (route.destination === '/onboarding') {
+            router.replace({ pathname: '/onboarding', params: { returnTo: '/trail/new' } });
+            return;
+          }
+
+          router.replace(route.destination);
+          return;
+        }
+
+        setIsRouteReady(true);
+      } catch {
+        const shouldUseAuth = await shouldRouteErrorToAuth();
+        if (!mounted) return;
+
+        if (shouldUseAuth) {
+          router.replace('/auth');
+          return;
+        }
+
+        setRouteError(true);
+      }
+    };
+
+    void resolve();
+    return () => {
+      mounted = false;
+    };
+  }, [attempt, router]);
+
+  useEffect(() => {
+    if (!isRouteReady) return;
     let mounted = true;
 
     const load = async () => {
@@ -106,9 +150,7 @@ export default function NewTrail() {
         if (!mounted) return;
         setMe(profile);
         setCheckins(stamps);
-        if (!title && stamps[0]) {
-          setTitle(`${stamps[0].beer.name} trail`);
-        }
+        setTitle((current) => current || (stamps[0] ? `${stamps[0].beer.name} trail` : 'Untitled trail'));
       } catch {
         Alert.alert('Trail unavailable', 'Could not load your stamps for the composer.');
       } finally {
@@ -122,7 +164,7 @@ export default function NewTrail() {
     return () => {
       mounted = false;
     };
-  }, [title]);
+  }, [isRouteReady]);
 
   useEffect(() => {
     if (!checkinId || seededCheckinRef.current || !checkins.length) return;
@@ -137,6 +179,7 @@ export default function NewTrail() {
     const query = placeQuery.trim();
     if (query.length < 2) {
       setHints([]);
+      setIsSearching(false);
       return;
     }
 
@@ -218,7 +261,26 @@ export default function NewTrail() {
     }
   };
 
-  if (isLoading) {
+  if (routeError) {
+    return (
+      <View style={styles.loadingWrap}>
+        <Text style={styles.errorTitle}>Could not load trail composer</Text>
+        <Text style={styles.errorText}>Your session is active, but Hoppin could not load the profile state.</Text>
+        <TouchableOpacity
+          style={styles.retryButton}
+          onPress={() => {
+            setIsRouteReady(false);
+            setRouteError(false);
+            setAttempt((current) => current + 1);
+          }}
+        >
+          <Text style={styles.retryText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (!isRouteReady || isLoading) {
     return (
       <View style={styles.loadingWrap}>
         <ActivityIndicator size="large" color="#38bdf8" />
@@ -379,6 +441,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#071022',
+  },
+  errorTitle: {
+    color: '#f8fafc',
+    fontSize: 20,
+    fontWeight: '900',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  errorText: {
+    color: '#94a3b8',
+    lineHeight: 20,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  retryButton: {
+    backgroundColor: '#0ea5e9',
+    borderRadius: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+  },
+  retryText: {
+    color: '#f8fafc',
+    fontWeight: '900',
   },
   topRow: {
     flexDirection: 'row',
