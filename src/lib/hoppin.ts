@@ -1529,16 +1529,20 @@ async function findOrCreateVenue(
       if (coordDrift(confirmed.latitude, lat)) refresh.latitude = lat;
       if (coordDrift(confirmed.longitude, lng)) refresh.longitude = lng;
       if (Object.keys(refresh).length > 0) {
-        const { data: refreshed, error: refreshError } = await supabase
-          .from('venues')
-          .update(refresh)
-          .eq('id', confirmed.id)
-          .eq('place_provider', provider)
-          .eq('provider_place_id', externalId)
-          .select('id,name,country,place_provider,provider_place_id,latitude,longitude,city_id')
-          .maybeSingle();
-        if (!refreshError && refreshed) {
-          return refreshed as DbVenue;
+        try {
+          const { data: refreshed, error: refreshError } = await supabase
+            .from('venues')
+            .update(refresh)
+            .eq('id', confirmed.id)
+            .eq('place_provider', provider)
+            .eq('provider_place_id', externalId)
+            .select('id,name,country,place_provider,provider_place_id,latitude,longitude,city_id')
+            .maybeSingle();
+          if (!refreshError && refreshed) {
+            return refreshed as DbVenue;
+          }
+        } catch {
+          // Best-effort metadata sync; a network failure here should not fail the check-in.
         }
       }
       return confirmed;
@@ -1556,15 +1560,19 @@ async function findOrCreateVenue(
   if (data?.[0]) {
     const matched = data[0] as DbVenue;
     if (externalId && !matched.provider_place_id) {
-      const { data: linked, error: linkError } = await supabase
-        .from('venues')
-        .update({ place_provider: provider, provider_place_id: externalId })
-        .eq('id', matched.id)
-        .is('provider_place_id', null)
-        .select('id,name,country,place_provider,provider_place_id,latitude,longitude,city_id')
-        .maybeSingle();
-      if (!linkError && linked) {
-        return linked as DbVenue;
+      try {
+        const { data: linked, error: linkError } = await supabase
+          .from('venues')
+          .update({ place_provider: provider, provider_place_id: externalId })
+          .eq('id', matched.id)
+          .is('provider_place_id', null)
+          .select('id,name,country,place_provider,provider_place_id,latitude,longitude,city_id')
+          .maybeSingle();
+        if (!linkError && linked) {
+          return linked as DbVenue;
+        }
+      } catch {
+        // Best-effort provider link; a network failure here should not fail the check-in.
       }
     }
     return matched;
