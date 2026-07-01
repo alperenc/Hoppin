@@ -1535,7 +1535,20 @@ async function findOrCreateVenue(
   if (error) throw new Error(error.message);
 
   if (data?.[0]) {
-    return data[0] as DbVenue;
+    const matched = data[0] as DbVenue;
+    if (externalId && !matched.provider_place_id) {
+      const { data: linked, error: linkError } = await supabase
+        .from('venues')
+        .update({ place_provider: provider, provider_place_id: externalId })
+        .eq('id', matched.id)
+        .is('provider_place_id', null)
+        .select('id,name,country,place_provider,provider_place_id,latitude,longitude,city_id')
+        .maybeSingle();
+      if (!linkError && linked) {
+        return linked as DbVenue;
+      }
+    }
+    return matched;
   }
 
   const { data: inserted, error: insertError } = await supabase
