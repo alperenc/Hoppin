@@ -1522,7 +1522,24 @@ async function findOrCreateVenue(
     if (providerError) throw new Error(providerError.message);
 
     if (providerRows?.[0]) {
-      return providerRows[0] as DbVenue;
+      const confirmed = providerRows[0] as DbVenue;
+      const staleName = normalizedName && confirmed.name !== normalizedName;
+      const staleLat = Number(confirmed.latitude) !== lat;
+      const staleLng = Number(confirmed.longitude) !== lng;
+      if (staleName || staleLat || staleLng) {
+        const { data: refreshed, error: refreshError } = await supabase
+          .from('venues')
+          .update({ name: normalizedName, latitude: lat, longitude: lng })
+          .eq('id', confirmed.id)
+          .eq('place_provider', provider)
+          .eq('provider_place_id', externalId)
+          .select('id,name,country,place_provider,provider_place_id,latitude,longitude,city_id')
+          .maybeSingle();
+        if (!refreshError && refreshed) {
+          return refreshed as DbVenue;
+        }
+      }
+      return confirmed;
     }
   }
 
