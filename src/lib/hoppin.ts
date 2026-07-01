@@ -1547,21 +1547,10 @@ async function findOrCreateVenue(
 
   if (data?.[0]) {
     const matched = data[0] as DbVenue;
-    if (externalId && !matched.provider_place_id) {
-      try {
-        const { data: linked, error: linkError } = await supabase
-          .from('venues')
-          .update({ place_provider: provider, provider_place_id: externalId })
-          .eq('id', matched.id)
-          .is('provider_place_id', null)
-          .select('id,name,country,place_provider,provider_place_id,latitude,longitude,city_id')
-          .maybeSingle();
-        if (!linkError && linked) {
-          return linked as DbVenue;
-        }
-      } catch {
-        // Best-effort provider link; a network failure here should not fail the check-in.
-      }
+    if (externalId && !matched.provider_place_id && provider === 'google') {
+      requestVenueProviderRefresh(matched.id, externalId).catch(() => {
+        // Best-effort, server-verified link; failures here never affect the check-in.
+      });
     }
     return matched;
   }
