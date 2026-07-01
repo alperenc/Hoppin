@@ -41,6 +41,20 @@ This file is the repo-specific workflow and validation guide to use by default.
   in code and resolve the thread. Do not add a reply comment unless there is
   a specific reason to explain something the fix doesn't make obvious on its
   own (e.g. why an alternative approach was rejected).
+- When a review finding is out of scope for the current PR (e.g. a
+  design/scale/observability concern rather than a correctness or security
+  bug in the current diff), file a GitHub issue for it — or fold it into an
+  existing open issue covering the same underlying concern — react `👍`,
+  reply pointing at the issue, and resolve the thread. Decide this
+  autonomously; do not ask before filing or merging on this basis.
+- For independent supplemental review (beyond the repo's configured
+  automated reviewer), use the `opencode` CLI. Have it fetch the diff and
+  post its own findings directly to GitHub via `gh` (inline PR review
+  comments, or a top-level PR comment if it found nothing) rather than
+  relaying findings through the assistant unfiltered — the assistant
+  verifies/dispositions findings in the open (reply + resolve, or file an
+  issue) the same as for the primary automated reviewer, not by filtering
+  them before they're visible on the PR.
 
 ## Validation Defaults
 
