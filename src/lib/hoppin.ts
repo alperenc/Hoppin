@@ -1523,13 +1523,15 @@ async function findOrCreateVenue(
 
     if (providerRows?.[0]) {
       const confirmed = providerRows[0] as DbVenue;
-      const staleName = normalizedName && confirmed.name !== normalizedName;
-      const staleLat = Number(confirmed.latitude) !== lat;
-      const staleLng = Number(confirmed.longitude) !== lng;
-      if (staleName || staleLat || staleLng) {
+      const coordDrift = (stored: number | string, next: number) => Math.abs(Number(stored) - next) > 1e-6;
+      const refresh: Partial<Pick<DbVenue, 'name' | 'latitude' | 'longitude'>> = {};
+      if (normalizedName && confirmed.name !== normalizedName) refresh.name = normalizedName;
+      if (coordDrift(confirmed.latitude, lat)) refresh.latitude = lat;
+      if (coordDrift(confirmed.longitude, lng)) refresh.longitude = lng;
+      if (Object.keys(refresh).length > 0) {
         const { data: refreshed, error: refreshError } = await supabase
           .from('venues')
-          .update({ name: normalizedName, latitude: lat, longitude: lng })
+          .update(refresh)
           .eq('id', confirmed.id)
           .eq('place_provider', provider)
           .eq('provider_place_id', externalId)
