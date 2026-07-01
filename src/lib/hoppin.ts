@@ -1530,14 +1530,14 @@ async function findOrCreateVenue(
       if (coordDrift(confirmed.longitude, lng)) refresh.longitude = lng;
       if (Object.keys(refresh).length > 0) {
         try {
-          const { data: refreshed, error: refreshError } = await supabase
-            .from('venues')
-            .update(refresh)
-            .eq('id', confirmed.id)
-            .eq('place_provider', provider)
-            .eq('provider_place_id', externalId)
-            .select('id,name,country,place_provider,provider_place_id,latitude,longitude,city_id')
-            .maybeSingle();
+          const { data: refreshed, error: refreshError } = await supabase.rpc('refresh_venue_from_provider_hint', {
+            p_venue_id: confirmed.id,
+            p_place_provider: provider,
+            p_provider_place_id: externalId,
+            p_name: refresh.name ?? null,
+            p_latitude: refresh.latitude ?? null,
+            p_longitude: refresh.longitude ?? null,
+          });
           if (!refreshError && refreshed) {
             return refreshed as DbVenue;
           }
