@@ -1,17 +1,6 @@
-import { createClient } from '@supabase/supabase-js';
 import { LocationHint } from '../src/types/hoppin';
-
-type VercelRequestLike = {
-  method?: string;
-  query?: Record<string, string | string[] | undefined>;
-  headers?: Record<string, string | string[] | undefined>;
-};
-
-type VercelResponseLike = {
-  setHeader(name: string, value: string): void;
-  status(code: number): VercelResponseLike;
-  json(body: unknown): void;
-};
+import { GooglePlaceDetails, fetchGooglePlaceDetails, isCityLike, resolveCity, resolveCountry } from '../src/lib/googlePlaces';
+import { VercelRequestLike, VercelResponseLike, getAuthorizedUserId } from '../src/lib/vercelAuth';
 
 type GoogleAutocompleteResponse = {
   suggestions?: Array<{
@@ -26,31 +15,6 @@ type GoogleNearbyResponse = {
   places?: GooglePlaceDetails[];
 };
 
-type GooglePlaceDetails = {
-  id?: string;
-  displayName?: {
-    text?: string;
-  };
-  location?: {
-    latitude?: number;
-    longitude?: number;
-  };
-  addressComponents?: Array<{
-    longText?: string;
-    shortText?: string;
-    types?: string[];
-  }>;
-  types?: string[];
-};
-
-const DETAILS_FIELD_MASK = [
-  'id',
-  'displayName',
-  'location',
-  'addressComponents',
-  'types',
-].join(',');
-
 const NEARBY_FIELD_MASK = [
   'places.id',
   'places.displayName',
@@ -60,28 +24,6 @@ const NEARBY_FIELD_MASK = [
 ].join(',');
 
 const nearbyIncludedTypes = ['brewery', 'brewpub', 'beer_garden', 'pub', 'bar', 'restaurant', 'cafe', 'night_club'];
-
-const isCityLike = (types: string[] = []) =>
-  types.some((type) =>
-    [
-      'locality',
-      'postal_town',
-      'administrative_area_level_3',
-      'administrative_area_level_2',
-    ].includes(type)
-  );
-
-const componentByType = (place: GooglePlaceDetails, type: string) =>
-  place.addressComponents?.find((component) => component.types?.includes(type));
-
-const resolveCity = (place: GooglePlaceDetails) =>
-  componentByType(place, 'locality')?.longText ??
-  componentByType(place, 'postal_town')?.longText ??
-  componentByType(place, 'administrative_area_level_3')?.longText ??
-  componentByType(place, 'administrative_area_level_2')?.longText;
-
-const resolveCountry = (place: GooglePlaceDetails) =>
-  componentByType(place, 'country')?.longText ?? componentByType(place, 'country')?.shortText;
 
 const toHint = (place: GooglePlaceDetails): LocationHint | null => {
   const city = resolveCity(place);
@@ -122,32 +64,6 @@ const uniqueHints = (hints: LocationHint[]) => {
   return unique;
 };
 
-const readHeader = (request: VercelRequestLike, name: string) => {
-  const value = request.headers?.[name] ?? request.headers?.[name.toLowerCase()];
-  return Array.isArray(value) ? value[0] : value;
-};
-
-const isAuthorized = async (request: VercelRequestLike) => {
-  const supabaseUrl = process.env.SUPABASE_URL?.trim() || process.env.EXPO_PUBLIC_SUPABASE_URL?.trim();
-  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY?.trim() || process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY?.trim();
-  const token = readHeader(request, 'authorization')?.replace(/^Bearer\s+/i, '').trim();
-
-  if (!supabaseUrl || !supabaseAnonKey || !token) {
-    return false;
-  }
-
-  const client = createClient(supabaseUrl, supabaseAnonKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-      detectSessionInUrl: false,
-    },
-  });
-  const { data, error } = await client.auth.getUser(token);
-
-  return !error && Boolean(data.user);
-};
-
 export default async function handler(request: VercelRequestLike, response: VercelResponseLike) {
   response.setHeader('Cache-Control', 'private, no-store');
 
@@ -183,7 +99,7 @@ export default async function handler(request: VercelRequestLike, response: Verc
     return;
   }
 
-  if (!(await isAuthorized(request))) {
+  if (!(await getAuthorizedUserId(request))) {
     response.status(401).json({ hints: [] });
     return;
   }
@@ -252,22 +168,7 @@ export default async function handler(request: VercelRequestLike, response: Verc
         .map((externalId) => ({ externalId }))
     ).map((hint) => hint.externalId as string);
 
-    const details = await Promise.all(
-      placeIds.map(async (placeId) => {
-        const detailsResponse = await fetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`, {
-          headers: {
-            'X-Goog-Api-Key': apiKey,
-            'X-Goog-FieldMask': DETAILS_FIELD_MASK,
-          },
-        });
-
-        if (!detailsResponse.ok) {
-          return null;
-        }
-
-        return (await detailsResponse.json()) as GooglePlaceDetails;
-      })
-    );
+    const details = await Promise.all(placeIds.map((placeId) => fetchGooglePlaceDetails(placeId, apiKey)));
 
     response.status(200).json({
       hints: uniqueHints(details.map((place) => (place ? toHint(place) : null)).filter((hint): hint is LocationHint => Boolean(hint))).slice(0, 5),

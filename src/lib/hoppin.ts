@@ -1524,26 +1524,14 @@ async function findOrCreateVenue(
     if (providerRows?.[0]) {
       const confirmed = providerRows[0] as DbVenue;
       const coordDrift = (stored: number | string, next: number) => Math.abs(Number(stored) - next) > 1e-6;
-      const refresh: Partial<Pick<DbVenue, 'name' | 'latitude' | 'longitude'>> = {};
-      if (normalizedName && confirmed.name !== normalizedName) refresh.name = normalizedName;
-      if (coordDrift(confirmed.latitude, lat)) refresh.latitude = lat;
-      if (coordDrift(confirmed.longitude, lng)) refresh.longitude = lng;
-      if (Object.keys(refresh).length > 0) {
-        try {
-          const { data: refreshed, error: refreshError } = await supabase.rpc('refresh_venue_from_provider_hint', {
-            p_venue_id: confirmed.id,
-            p_place_provider: provider,
-            p_provider_place_id: externalId,
-            p_name: refresh.name ?? null,
-            p_latitude: refresh.latitude ?? null,
-            p_longitude: refresh.longitude ?? null,
-          });
-          if (!refreshError && refreshed) {
-            return refreshed as DbVenue;
-          }
-        } catch {
-          // Best-effort metadata sync; a network failure here should not fail the check-in.
-        }
+      const isStale =
+        (normalizedName && confirmed.name !== normalizedName) ||
+        coordDrift(confirmed.latitude, lat) ||
+        coordDrift(confirmed.longitude, lng);
+      if (isStale && provider === 'google') {
+        requestVenueProviderRefresh(confirmed.id, externalId).catch(() => {
+          // Best-effort, server-verified sync; failures here never affect the check-in.
+        });
       }
       return confirmed;
     }
@@ -2983,6 +2971,30 @@ async function fetchGoogleNearbyVenueHints(lat: number, lng: number): Promise<Lo
   } catch {
     return [];
   }
+}
+
+async function requestVenueProviderRefresh(venueId: string, placeId: string): Promise<void> {
+  if (typeof fetch !== 'function' || !isSupabaseConfigured) {
+    return;
+  }
+
+  const { data } = await supabase.auth.getSession();
+  const accessToken = data.session?.access_token;
+  if (!accessToken) {
+    return;
+  }
+
+  const proxyBase = process.env.EXPO_PUBLIC_HOPPIN_PLACES_PROXY_URL?.trim();
+  const endpoint = `${proxyBase ? proxyBase.replace(/\/$/, '') : ''}/api/places-refresh`;
+
+  await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ venueId, placeId }),
+  });
 }
 
 async function listStoredVenueOrCityHints(query: string): Promise<LocationHint[]> {
