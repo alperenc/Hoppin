@@ -8,6 +8,11 @@ const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
 // its recorded location; anything farther is not the same physical place.
 const MAX_LINK_DISTANCE_METERS = 250;
 
+// A real user refreshes a handful of venues per check-in session; this is
+// generous headroom for that while blocking scripted bursts.
+const RATE_LIMIT_MAX_CALLS = 20;
+const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
+
 function parseBody(request: VercelRequestLike): { venueId?: string; placeId?: string } {
   if (!request.body) return {};
   if (typeof request.body === 'string') {
@@ -62,6 +67,20 @@ export default async function handler(request: VercelRequestLike, response: Verc
   const service = createClient(supabaseUrl, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
   });
+
+  const windowStart = new Date(Date.now() - RATE_LIMIT_WINDOW_MS).toISOString();
+  const { count: recentCalls, error: rateLimitError } = await service
+    .from('places_refresh_calls')
+    .select('id', { count: 'exact', head: true })
+    .eq('profile_id', userId)
+    .gte('created_at', windowStart);
+
+  if (rateLimitError || (recentCalls ?? 0) >= RATE_LIMIT_MAX_CALLS) {
+    response.status(429).json({ ok: false });
+    return;
+  }
+
+  await service.from('places_refresh_calls').insert({ profile_id: userId });
 
   const { data: venue, error: venueError } = await service
     .from('venues')
