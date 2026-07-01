@@ -30,12 +30,13 @@ Implementation plan for full production rollout is tracked in [/docs/PLAN.md](/d
 2. Set values in `.env.local` from `.env.example`
 3. Start app: `npx expo start`
 
-For deployed web, configure both Google keys in Vercel:
+For deployed web, configure these keys in Vercel:
 
-- `GOOGLE_PLACES_API_KEY` enables live Google Places suggestions through the server-side `/api/places` proxy.
+- `GOOGLE_PLACES_API_KEY` enables live Google Places suggestions through the server-side `/api/places` proxy, and re-verifying stale venue data through `/api/places-refresh`.
 - `EXPO_PUBLIC_GOOGLE_MAPS_WEB_KEY` enables Google Maps JS tiles on the web Passport map.
+- `SUPABASE_SERVICE_ROLE_KEY` lets `/api/places-refresh` write a venue's refreshed name/coordinates after confirming them against Google directly. Never expose this key to the client.
 
-The Places key stays server-only. The Maps web key is intentionally public, so restrict it in Google Cloud to the Hoppin web domains and the Maps JavaScript API.
+The Places and service-role keys stay server-only. The Maps web key is intentionally public, so restrict it in Google Cloud to the Hoppin web domains and the Maps JavaScript API.
 
 ## Google sign-in setup
 
