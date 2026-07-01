@@ -35,6 +35,12 @@ This file is the repo-specific workflow and validation guide to use by default.
   or only acknowledged. Wait for the review to either report no findings or
   provide actionable threads, then address and resolve those threads before
   merging.
+- Do not manually request a re-review while a `👀` reaction shows one is
+  already in progress; wait for it to finalize.
+- When a review finding is valid, react `👍` on the finding once it is fixed
+  in code and resolve the thread. Do not add a reply comment unless there is
+  a specific reason to explain something the fix doesn't make obvious on its
+  own (e.g. why an alternative approach was rejected).
 
 ## Validation Defaults
 
