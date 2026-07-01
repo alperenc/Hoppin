@@ -1536,11 +1536,12 @@ async function findOrCreateVenue(
 
   if (data?.[0]) {
     const matched = data[0] as DbVenue;
-    if (externalId && !matched.place_provider && !matched.provider_place_id) {
+    if (externalId && !matched.provider_place_id) {
       const { data: linked, error: linkError } = await supabase
         .from('venues')
         .update({ place_provider: provider, provider_place_id: externalId })
         .eq('id', matched.id)
+        .is('provider_place_id', null)
         .select('id,name,country,place_provider,provider_place_id,latitude,longitude,city_id')
         .maybeSingle();
       if (!linkError && linked) {
