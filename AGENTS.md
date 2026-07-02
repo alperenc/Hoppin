@@ -67,21 +67,32 @@ This file is the repo-specific workflow and validation guide to use by default.
   — the hard-stop exceptions below exist independent of launch state and
   don't loosen as the product matures.
 - Hard stops — always get explicit human approval before merging, regardless
-  of review/check state, launch stage, or how confident the diff looks:
+  of review/check state, launch stage, or how confident the diff looks.
+  These cover authorization/exposure decisions a code reviewer isn't
+  positioned to catch after the fact — the damage (a leaked key, an
+  unwanted charge) happens at the moment of the change, not at some later
+  point a review pass could still intervene:
   - Any change to secrets scope or handling: which env vars exist, which
     keys they hold, where they're read (client vs. server-only), or who/what
     can access a value like `SUPABASE_SERVICE_ROLE_KEY`.
-  - Any change to Row Level Security (RLS) policies, grants, or
-    security-relevant triggers on any Supabase table. This class of change
-    is exactly what caused the multi-round security findings on PR #43 —
-    RLS mistakes are easy to write in a way that looks correct and passes
-    typecheck/tests while still being exploitable.
   - Any change to billing-relevant configuration: Vercel plan/usage
     settings, API keys tied to paid quotas, anything that could change what
     the project is charged for.
   - Any production data mutation run outside of normal app code paths (e.g.
     a one-off script or manual Supabase dashboard query against the live
     database).
+- Row Level Security (RLS) policies, grants, and security-relevant triggers
+  on any Supabase table are not a hard stop, but they get a stricter review
+  bar than other changes: PR #43 needed four escalating rounds of
+  independent review (Codex and `opencode`) to actually close a real
+  exploit, and every one of those bugs typechecked cleanly and looked
+  correct on a normal read. For any PR touching RLS/grants/security
+  triggers, run an independent review pass (`opencode`, or `@codex review`
+  if not already triggered) *specifically prompted to look for an
+  authorization bypass*, not just a general correctness pass, and don't
+  treat a single clean review as sufficient — re-review after each fix
+  until a pass finds nothing new, the same pattern that actually worked on
+  PR #43.
 
 ## Working An Issue Queue Autonomously
 
