@@ -62,6 +62,26 @@ This file is the repo-specific workflow and validation guide to use by default.
   a code fix or turned into a tracked issue per the rule above. Once checks
   are green, merge state is clean, and the review from the *current* head
   commit is accounted for, merge without waiting for separate approval.
+  Hoppin is pre-launch (no real users or revenue at stake), which is why
+  most changes are cheap enough to reverse that this default applies broadly
+  — the hard-stop exceptions below exist independent of launch state and
+  don't loosen as the product matures.
+- Hard stops — always get explicit human approval before merging, regardless
+  of review/check state, launch stage, or how confident the diff looks:
+  - Any change to secrets scope or handling: which env vars exist, which
+    keys they hold, where they're read (client vs. server-only), or who/what
+    can access a value like `SUPABASE_SERVICE_ROLE_KEY`.
+  - Any change to Row Level Security (RLS) policies, grants, or
+    security-relevant triggers on any Supabase table. This class of change
+    is exactly what caused the multi-round security findings on PR #43 —
+    RLS mistakes are easy to write in a way that looks correct and passes
+    typecheck/tests while still being exploitable.
+  - Any change to billing-relevant configuration: Vercel plan/usage
+    settings, API keys tied to paid quotas, anything that could change what
+    the project is charged for.
+  - Any production data mutation run outside of normal app code paths (e.g.
+    a one-off script or manual Supabase dashboard query against the live
+    database).
 
 ## Working An Issue Queue Autonomously
 
@@ -69,16 +89,21 @@ This file is the repo-specific workflow and validation guide to use by default.
   new branch per the branching rules above, open a PR referencing the issue,
   and run it through the full review-gate cycle above before merging.
 - If an issue requires a decision with real, non-obvious tradeoffs (choice
-  of library/backend, a breaking API change, anything touching auth/secrets
-  scope) and the issue text doesn't already settle it, make the call and
-  record the reasoning in the PR description rather than blocking — this
-  matches how issues #45/#46 themselves were scoped. Only stop and surface
-  the question if the decision is genuinely irreversible or expensive to
-  unwind (e.g. a schema change with no clean rollback, adding a paid
-  third-party dependency).
-- Work one issue at a time to completion (merged, or explicitly blocked)
-  before starting the next, so the branch/PR/review state never overlaps
-  across issues.
+  of library/backend, a breaking API change) and the issue text doesn't
+  already settle it, make the call and record the reasoning in the PR
+  description rather than blocking — this matches how issues #45/#46
+  themselves were scoped. Stop and surface the question instead if the
+  decision falls under a hard stop above, or is otherwise genuinely
+  irreversible/expensive to unwind in a way the hard stops don't already
+  cover.
+- If work on an issue gets stuck (blocked on a missing decision, a flaky
+  check that won't go green, an unclear requirement), don't spin on it
+  silently. Post a comment on the issue explaining the blocker, leave the
+  branch/PR (if one exists) open, and move to the next issue in the queue
+  rather than retrying indefinitely.
+- Work one issue at a time to completion (merged, explicitly blocked, or
+  handed off per the above) before starting the next, so the branch/PR/
+  review state never overlaps across issues.
 
 ## Validation Defaults
 
