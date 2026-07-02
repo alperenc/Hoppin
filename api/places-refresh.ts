@@ -1,12 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 import { fetchGooglePlaceDetails, resolveCity, resolveCountry } from '../src/lib/googlePlaces';
+import { MAX_LINK_DISTANCE_METERS, classifyVenueProviderLink, isWithinLinkDistance } from '../src/lib/placesRefreshPolicy';
 import { VercelRequestLike, VercelResponseLike, getAuthorizedUserId } from '../src/lib/vercelAuth';
 
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-// A legitimate re-check-in at a real venue should land within a city block of
-// its recorded location; anything farther is not the same physical place.
-const MAX_LINK_DISTANCE_METERS = 250;
 
 // A real user refreshes a handful of venues per check-in session; this is
 // generous headroom for that while blocking scripted bursts.
@@ -23,16 +20,6 @@ function parseBody(request: VercelRequestLike): { venueId?: string; placeId?: st
     }
   }
   return request.body as { venueId?: string; placeId?: string };
-}
-
-function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const toRad = (deg: number) => (deg * Math.PI) / 180;
-  const earthRadiusMeters = 6371000;
-  const dLat = toRad(lat2 - lat1);
-  const dLng = toRad(lng2 - lng1);
-  const a =
-    Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-  return earthRadiusMeters * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 export default async function handler(request: VercelRequestLike, response: VercelResponseLike) {
@@ -93,10 +80,9 @@ export default async function handler(request: VercelRequestLike, response: Verc
     return;
   }
 
-  const isAlreadyLinkedToThisPlace = venue.place_provider === 'google' && venue.provider_place_id === placeId;
-  const isUnlinked = !venue.provider_place_id;
+  const linkEligibility = classifyVenueProviderLink(venue, placeId);
 
-  if (!isAlreadyLinkedToThisPlace && !isUnlinked) {
+  if (linkEligibility.kind === 'linked_to_different_place') {
     // Linked to a different place already; never reassign an existing link.
     response.status(200).json({ ok: false });
     return;
@@ -119,18 +105,14 @@ export default async function handler(request: VercelRequestLike, response: Verc
     return;
   }
 
-  if (isUnlinked) {
+  if (linkEligibility.kind === 'unlinked') {
     // Linking a previously-unlinked venue: require the Google place to be
     // physically close to where the venue already claims to be, so a caller
     // can't attach an unrelated real place's identity to an existing venue
     // that other users' check-ins/trails already reference.
     const existingLat = Number(venue.latitude);
     const existingLng = Number(venue.longitude);
-    const distance =
-      Number.isFinite(existingLat) && Number.isFinite(existingLng)
-        ? haversineMeters(existingLat, existingLng, lat, lng)
-        : Infinity;
-    if (distance > MAX_LINK_DISTANCE_METERS) {
+    if (!isWithinLinkDistance(existingLat, existingLng, lat, lng, MAX_LINK_DISTANCE_METERS)) {
       response.status(200).json({ ok: false });
       return;
     }

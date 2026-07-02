@@ -38,6 +38,11 @@ For deployed web, configure these keys in Vercel:
 
 The Places and service-role keys stay server-only. The Maps web key is intentionally public, so restrict it in Google Cloud to the Hoppin web domains and the Maps JavaScript API.
 
+## Testing
+
+- `npm test` runs unit tests (Vitest) for plain-TypeScript logic that doesn't need a database or native runtime -- e.g. `src/lib/placesRefreshPolicy.ts`, the proximity/link-eligibility rules `api/places-refresh.ts` uses.
+- `npm run test:db` runs pgTAP tests (`supabase/tests/`) against a local Supabase/Postgres instance, covering RLS/grant/trigger behavior such as the `public.venues` column-scope guard (`supabase/migrations/0007_venue_column_scope_guard.sql`). Requires Docker and the Supabase CLI (`npx supabase start` first, or let `npx supabase test db` start it).
+
 ## Google sign-in setup
 
 Enable the Google provider in Supabase Auth and store the Google OAuth client ID/secret in the Supabase dashboard. In Google Cloud, use the Supabase callback URL as an authorized redirect URI:
