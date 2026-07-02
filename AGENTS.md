@@ -40,89 +40,23 @@ This file is the repo-specific workflow and validation guide to use by default.
 - When a review finding is valid, react `👍` on the finding once it is fixed
   in code and resolve the thread. Do not add a reply comment unless there is
   a specific reason to explain something the fix doesn't make obvious on its
-  own (e.g. why an alternative approach was rejected).
-- When a review finding is out of scope for the current PR (e.g. a
-  design/scale/observability concern rather than a correctness or security
-  bug in the current diff), file a GitHub issue for it — or fold it into an
-  existing open issue covering the same underlying concern — react `👍`,
-  reply pointing at the issue, and resolve the thread. Decide this
-  autonomously; do not ask before filing or merging on this basis.
-- For independent supplemental review (beyond the repo's configured
-  automated reviewer), use the `opencode` CLI. Have it fetch the diff and
-  post its own findings directly to GitHub via `gh` (inline PR review
-  comments, or a top-level PR comment if it found nothing) rather than
-  relaying findings through the assistant unfiltered — the assistant
-  verifies/dispositions findings in the open (reply + resolve, or file an
-  issue) the same as for the primary automated reviewer, not by filtering
-  them before they're visible on the PR.
-- Merging is autonomous, gated purely on process, not on a human "go ahead"
-  for each PR: after every push to a PR, ensure a fresh review runs (wait
-  for the automated reviewer if push-triggered, or trigger `opencode` and/or
-  `@codex review` if not) and every resulting thread is either resolved via
-  a code fix or turned into a tracked issue per the rule above. Once checks
-  are green, merge state is clean, and the review from the *current* head
-  commit is accounted for, merge without waiting for separate approval.
-  Hoppin is pre-launch (no real users or revenue at stake), which is why
-  most changes are cheap enough to reverse that this default applies broadly
-  — the hard-stop exceptions below exist independent of launch state and
-  don't loosen as the product matures.
-- Hard stops — always get explicit human approval before merging, regardless
-  of review/check state, launch stage, or how confident the diff looks.
-  These cover authorization/exposure decisions a code reviewer isn't
-  positioned to catch after the fact — the damage (a leaked key, an
-  unwanted charge) happens at the moment of the change, not at some later
-  point a review pass could still intervene:
-  - Any change to secrets scope or handling: which env vars exist, which
-    keys they hold, where they're read (client vs. server-only), or who/what
-    can access a value like `SUPABASE_SERVICE_ROLE_KEY`.
-  - Any change to billing-relevant configuration: Vercel plan/usage
-    settings, API keys tied to paid quotas, anything that could change what
-    the project is charged for.
-  - Any production data mutation run outside of normal app code paths (e.g.
-    a one-off script or manual Supabase dashboard query against the live
-    database).
-- Row Level Security (RLS) policies, grants, and security-relevant triggers
-  on any Supabase table are not a hard stop, but they never merge on the
-  strength of the assistant's own review alone. PR #42's
-  `venues_attach_provider` policy — the one that let any authenticated user
-  attach an arbitrary place to any unlinked venue with no identity check,
-  later the worst finding in PR #43 — merged with zero independent review;
-  every review on that PR was the assistant's own pass, and it missed the
-  bug. This proves self-review is not reliable enough here on its own — it
-  does not prove one independent pass is always sufficient going forward,
-  so don't read this rule as capping the requirement at one pass. Follow
-  the independent-review mechanism from the rule above (the tool posts its
-  own findings directly to GitHub, not filtered through the assistant
-  first) using a prompt explicitly asking it to look for an authorization
-  bypass (who can read/write which rows/columns, under what condition), not
-  just general correctness. Any finding gets fixed and the fix gets its own
-  fresh independent pass — the same escalation PR #43 needed across four
-  rounds, each catching something the last one missed as the fix changed
-  the attack surface. Use judgment about when enough independent scrutiny
-  has actually happened; "one clean pass occurred" is necessary, not
-  automatically sufficient.
-
-## Working An Issue Queue Autonomously
-
-- When picking up an open issue to work on: read it in full, implement on a
-  new branch per the branching rules above, open a PR referencing the issue,
-  and run it through the full review-gate cycle above before merging.
-- If an issue requires a decision with real, non-obvious tradeoffs (choice
-  of library/backend, a breaking API change) and the issue text doesn't
-  already settle it, make the call and record the reasoning in the PR
-  description rather than blocking — this matches how issues #45/#46
-  themselves were scoped. Stop and surface the question instead if the
-  decision falls under a hard stop above, or is otherwise genuinely
-  irreversible/expensive to unwind in a way the hard stops don't already
-  cover.
-- If work on an issue gets stuck (blocked on a missing decision, a flaky
-  check that won't go green, an unclear requirement), don't spin on it
-  silently. Post a comment on the issue explaining the blocker, leave the
-  branch/PR (if one exists) open, and move to the next issue in the queue
-  rather than retrying indefinitely.
-- Work one issue at a time to completion (merged, explicitly blocked, or
-  handed off per the above) before starting the next, so the branch/PR/
-  review state never overlaps across issues.
+  own (e.g. why an alternative approach was rejected). When a finding is out
+  of scope for the current PR, file a GitHub issue (or fold it into an
+  existing one) instead, then react/reply/resolve the same way.
+- Supplemental independent review beyond the repo's configured automated
+  reviewer: use `opencode`, having it post its own findings directly to
+  GitHub via `gh` rather than relaying through whichever agent is driving
+  first.
+- Merging is autonomous once the review gate above is satisfied on the
+  current head commit — no separate human "go ahead" needed per PR — with
+  narrow exceptions (secrets/billing/production-data changes always need
+  explicit human approval; RLS/grants/security-trigger changes always need
+  a genuine independent review pass, never merge on self-review alone).
+  Agents with their own standing policy on autonomy scope should apply the
+  stricter of that policy and this one. Work an open issue queue the same
+  way: one issue at a time, PR referencing the issue, full review-gate
+  cycle before merging, post a blocker comment and move on rather than
+  spinning if stuck.
 
 ## Validation Defaults
 
