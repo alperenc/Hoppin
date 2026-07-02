@@ -26,7 +26,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(10);
+select plan(11);
 
 grant select, insert on public.places_refresh_calls to service_role;
 
@@ -64,6 +64,12 @@ select is(
   has_table_privilege('authenticated', 'public.places_refresh_calls', 'INSERT'),
   false,
   'authenticated has no INSERT grant on places_refresh_calls'
+);
+
+select is(
+  has_table_privilege('anon', 'public.places_refresh_calls', 'SELECT'),
+  false,
+  'anon has no SELECT grant on places_refresh_calls'
 );
 
 select is(
