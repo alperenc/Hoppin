@@ -1,6 +1,20 @@
+import { createClient } from '@supabase/supabase-js';
 import { LocationHint } from '../src/types/hoppin';
 import { GooglePlaceDetails, fetchGooglePlaceDetails, isCityLike, resolveCity, resolveCountry } from '../src/lib/googlePlaces';
 import { VercelRequestLike, VercelResponseLike, getAuthorizedUserId } from '../src/lib/vercelAuth';
+import { checkRateLimit, getClientIp } from '../src/lib/rateLimit';
+
+// This endpoint is a thin proxy in front of paid Google Places calls
+// (autocomplete + nearby + details, up to several Google requests per hit);
+// it predates any rate limiting (see issue #45). Callers search-as-they-type,
+// so the per-user budget is generous, but still bounded well below what a
+// scripted client could otherwise sustain.
+const RATE_LIMIT_MAX_CALLS = 60;
+const RATE_LIMIT_WINDOW_SECONDS = 10 * 60;
+
+// Looser IP bound: catches a single IP cycling through many accounts without
+// punishing shared IPs under normal per-user use.
+const RATE_LIMIT_IP_MAX_CALLS = 180;
 
 type GoogleAutocompleteResponse = {
   suggestions?: Array<{
@@ -99,8 +113,39 @@ export default async function handler(request: VercelRequestLike, response: Verc
     return;
   }
 
-  if (!(await getAuthorizedUserId(request))) {
+  const userId = await getAuthorizedUserId(request);
+  if (!userId) {
     response.status(401).json({ hints: [] });
+    return;
+  }
+
+  const supabaseUrl = process.env.SUPABASE_URL?.trim() || process.env.EXPO_PUBLIC_SUPABASE_URL?.trim();
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    response.status(200).json({ hints: [] });
+    return;
+  }
+
+  const service = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  });
+
+  const [withinUserLimit, withinIpLimit] = await Promise.all([
+    checkRateLimit(service, userId, {
+      bucket: 'places:user',
+      windowSeconds: RATE_LIMIT_WINDOW_SECONDS,
+      maxCalls: RATE_LIMIT_MAX_CALLS,
+    }),
+    checkRateLimit(service, getClientIp(request), {
+      bucket: 'places:ip',
+      windowSeconds: RATE_LIMIT_WINDOW_SECONDS,
+      maxCalls: RATE_LIMIT_IP_MAX_CALLS,
+    }),
+  ]);
+
+  if (!withinUserLimit || !withinIpLimit) {
+    response.status(429).json({ hints: [] });
     return;
   }
 
