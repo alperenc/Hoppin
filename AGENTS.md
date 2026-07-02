@@ -72,6 +72,8 @@ Run the narrowest checks that match the change:
 
 - `npm install` after dependency changes.
 - `npx tsc --noEmit` for every code/config change that touches TypeScript.
+- `npm test` for changes to pure logic covered by unit tests (e.g. `src/lib/*.test.ts`).
+- `npm run test:db` (requires Docker) for changes to `supabase/migrations/` RLS policies, grants, or triggers -- see `supabase/tests/` for existing coverage.
 - `npx expo start` to validate app boot and navigation flow (reuse an existing running dev server when available).
 - For auth/onboarding/navigation work, verify these path contracts manually:
   - unauthenticated users route to `/auth`
