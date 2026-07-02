@@ -82,17 +82,22 @@ This file is the repo-specific workflow and validation guide to use by default.
     a one-off script or manual Supabase dashboard query against the live
     database).
 - Row Level Security (RLS) policies, grants, and security-relevant triggers
-  on any Supabase table are not a hard stop, but they get a stricter review
-  bar than other changes: PR #43 needed four escalating rounds of
-  independent review (Codex and `opencode`) to actually close a real
-  exploit, and every one of those bugs typechecked cleanly and looked
-  correct on a normal read. For any PR touching RLS/grants/security
-  triggers, run an independent review pass (`opencode`, or `@codex review`
-  if not already triggered) *specifically prompted to look for an
-  authorization bypass*, not just a general correctness pass, and don't
-  treat a single clean review as sufficient — re-review after each fix
-  until a pass finds nothing new, the same pattern that actually worked on
-  PR #43.
+  on any Supabase table are not a hard stop, but they never merge without at
+  least one adversarial-focused review pass. Checked the actual history
+  here: PR #42's `venues_attach_provider` policy — the one that let any
+  authenticated user attach an arbitrary place to any unlinked venue with no
+  identity check, later the worst finding in PR #43 — was never reviewed by
+  Codex or `opencode` at all before merging; every review on that PR was the
+  assistant's own pass. By contrast, every RLS/grants bug that *did* get an
+  independent adversarial pass in this repo's history was caught, most on
+  the first pass. The actual failure mode wasn't "one pass wasn't enough" —
+  it was "zero passes happened." So the requirement is not a minimum pass
+  count; it's that a genuine independent pass must happen at all, and it
+  must be explicitly prompted to look for an authorization bypass (who can
+  read/write which rows/columns, under what condition), not just general
+  correctness — a generic review pass is not a substitute. If that pass
+  does find something, treat the fix as a new, unreviewed change and run
+  another pass on it before merging.
 
 ## Working An Issue Queue Autonomously
 
