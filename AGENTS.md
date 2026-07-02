@@ -60,10 +60,11 @@ This file is the repo-specific workflow and validation guide to use by default.
   to a finding needs its own fresh pass before merging, not just the
   original diff). Agents with their own standing policy on autonomy scope
   should apply the stricter of that policy and this one. Work an open issue
-  queue the same way: one issue at a time, PR referencing the issue, full
-  review-gate
-  cycle before merging, post a blocker comment and move on rather than
-  spinning if stuck.
+  queue the same way: each issue gets its own branch/PR referencing it and
+  the full review-gate cycle before merging; run issues in parallel when
+  their changes don't touch overlapping files or state, but don't let two
+  in-flight PRs touch the same file at once. Post a blocker comment and
+  move on to another issue rather than spinning if one gets stuck.
 
 ## Validation Defaults
 
