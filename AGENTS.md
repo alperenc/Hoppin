@@ -55,6 +55,30 @@ This file is the repo-specific workflow and validation guide to use by default.
   verifies/dispositions findings in the open (reply + resolve, or file an
   issue) the same as for the primary automated reviewer, not by filtering
   them before they're visible on the PR.
+- Merging is autonomous, gated purely on process, not on a human "go ahead"
+  for each PR: after every push to a PR, ensure a fresh review runs (wait
+  for the automated reviewer if push-triggered, or trigger `opencode` and/or
+  `@codex review` if not) and every resulting thread is either resolved via
+  a code fix or turned into a tracked issue per the rule above. Once checks
+  are green, merge state is clean, and the review from the *current* head
+  commit is accounted for, merge without waiting for separate approval.
+
+## Working An Issue Queue Autonomously
+
+- When picking up an open issue to work on: read it in full, implement on a
+  new branch per the branching rules above, open a PR referencing the issue,
+  and run it through the full review-gate cycle above before merging.
+- If an issue requires a decision with real, non-obvious tradeoffs (choice
+  of library/backend, a breaking API change, anything touching auth/secrets
+  scope) and the issue text doesn't already settle it, make the call and
+  record the reasoning in the PR description rather than blocking — this
+  matches how issues #45/#46 themselves were scoped. Only stop and surface
+  the question if the decision is genuinely irreversible or expensive to
+  unwind (e.g. a schema change with no clean rollback, adding a paid
+  third-party dependency).
+- Work one issue at a time to completion (merged, or explicitly blocked)
+  before starting the next, so the branch/PR/review state never overlaps
+  across issues.
 
 ## Validation Defaults
 
