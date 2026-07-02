@@ -2,13 +2,19 @@ import { createClient } from '@supabase/supabase-js';
 import { fetchGooglePlaceDetails, resolveCity, resolveCountry } from '../src/lib/googlePlaces';
 import { MAX_LINK_DISTANCE_METERS, classifyVenueProviderLink, isWithinLinkDistance } from '../src/lib/placesRefreshPolicy';
 import { VercelRequestLike, VercelResponseLike, getAuthorizedUserId } from '../src/lib/vercelAuth';
+import { checkRateLimit, getClientIp } from '../src/lib/rateLimit';
 
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // A real user refreshes a handful of venues per check-in session; this is
 // generous headroom for that while blocking scripted bursts.
 const RATE_LIMIT_MAX_CALLS = 20;
-const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
+const RATE_LIMIT_WINDOW_SECONDS = 10 * 60;
+
+// Looser IP bound: catches a single IP cycling through many accounts (or
+// hitting the endpoint unauthenticated attempts aside) without punishing
+// shared IPs (offices, NAT, mobile carriers) under normal per-user use.
+const RATE_LIMIT_IP_MAX_CALLS = 60;
 
 function parseBody(request: VercelRequestLike): { venueId?: string; placeId?: string } {
   if (!request.body) return {};
@@ -47,7 +53,10 @@ export default async function handler(request: VercelRequestLike, response: Verc
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
 
   if (!apiKey || !supabaseUrl || !serviceRoleKey) {
-    response.status(200).json({ ok: false });
+    // Missing server config is a genuine misconfiguration, not a normal
+    // best-effort no-op — surface it as 503 so status-based monitoring can
+    // detect it, unlike the 200s below for routine "nothing to do" outcomes.
+    response.status(503).json({ ok: false });
     return;
   }
 
@@ -55,19 +64,23 @@ export default async function handler(request: VercelRequestLike, response: Verc
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
   });
 
-  const windowStart = new Date(Date.now() - RATE_LIMIT_WINDOW_MS).toISOString();
-  const { count: recentCalls, error: rateLimitError } = await service
-    .from('places_refresh_calls')
-    .select('id', { count: 'exact', head: true })
-    .eq('profile_id', userId)
-    .gte('created_at', windowStart);
+  const [withinUserLimit, withinIpLimit] = await Promise.all([
+    checkRateLimit(service, userId, {
+      bucket: 'places-refresh:user',
+      windowSeconds: RATE_LIMIT_WINDOW_SECONDS,
+      maxCalls: RATE_LIMIT_MAX_CALLS,
+    }),
+    checkRateLimit(service, getClientIp(request), {
+      bucket: 'places-refresh:ip',
+      windowSeconds: RATE_LIMIT_WINDOW_SECONDS,
+      maxCalls: RATE_LIMIT_IP_MAX_CALLS,
+    }),
+  ]);
 
-  if (rateLimitError || (recentCalls ?? 0) >= RATE_LIMIT_MAX_CALLS) {
+  if (!withinUserLimit || !withinIpLimit) {
     response.status(429).json({ ok: false });
     return;
   }
-
-  await service.from('places_refresh_calls').insert({ profile_id: userId });
 
   const { data: venue, error: venueError } = await service
     .from('venues')

@@ -89,7 +89,7 @@ Run the narrowest checks that match the change:
   - `EXPO_PUBLIC_GOOGLE_MAPS_WEB_KEY`
 - Configure `GOOGLE_PLACES_API_KEY` in Vercel for the deployed `/api/places` proxy. Use `.env.local` only when running Vercel functions locally.
 - `EXPO_PUBLIC_HOPPIN_PLACES_PROXY_URL` is optional for non-web/native clients that need to call a deployed Hoppin web host for place suggestions.
-- Configure `SUPABASE_SERVICE_ROLE_KEY` in Vercel for the deployed `/api/places-refresh` function. This key bypasses RLS — never expose it as `EXPO_PUBLIC_*`, never call it from client code, and only use it inside server-side Vercel functions.
+- Configure `SUPABASE_SERVICE_ROLE_KEY` in Vercel for the deployed `/api/places-refresh` and `/api/places` functions (both call the `rate_limit_hit` RPC with the service role, since rate-limit counters have no client-facing RLS policy). This key bypasses RLS — never expose it as `EXPO_PUBLIC_*`, never call it from client code, and only use it inside server-side Vercel functions.
 - Do not commit API keys or other secrets.
 
 ## Data + Runtime Discipline
