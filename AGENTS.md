@@ -51,10 +51,13 @@ This file is the repo-specific workflow and validation guide to use by default.
   current head commit — no separate human "go ahead" needed per PR — with
   narrow exceptions (secrets/billing/production-data changes always need
   explicit human approval; RLS/grants/security-trigger changes always need
-  a genuine independent review pass, never merge on self-review alone).
-  Agents with their own standing policy on autonomy scope should apply the
-  stricter of that policy and this one. Work an open issue queue the same
-  way: one issue at a time, PR referencing the issue, full review-gate
+  a genuine independent review pass and never merge on self-review alone —
+  one clean pass is necessary but not automatically sufficient, and any fix
+  to a finding needs its own fresh pass before merging, not just the
+  original diff). Agents with their own standing policy on autonomy scope
+  should apply the stricter of that policy and this one. Work an open issue
+  queue the same way: one issue at a time, PR referencing the issue, full
+  review-gate
   cycle before merging, post a blocker comment and move on rather than
   spinning if stuck.
 
