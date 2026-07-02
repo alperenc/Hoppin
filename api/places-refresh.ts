@@ -60,7 +60,10 @@ export default async function handler(request: VercelRequestLike, response: Verc
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
 
   if (!apiKey || !supabaseUrl || !serviceRoleKey) {
-    response.status(200).json({ ok: false });
+    // Missing server config is a genuine misconfiguration, not a normal
+    // best-effort no-op — surface it as 503 so status-based monitoring can
+    // detect it, unlike the 200s below for routine "nothing to do" outcomes.
+    response.status(503).json({ ok: false });
     return;
   }
 
