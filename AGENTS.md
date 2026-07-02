@@ -46,7 +46,11 @@ This file is the repo-specific workflow and validation guide to use by default.
 - Supplemental independent review beyond the repo's configured automated
   reviewer: use `opencode`, having it post its own findings directly to
   GitHub via `gh` rather than relaying through whichever agent is driving
-  first.
+  first. If it finds real issues, post those as inline comments on the
+  specific lines. If it confirms the diff is clean (nothing to flag, or a
+  prior finding is now fixed with no new issues), post a `👍` reaction on
+  the PR body or a single short top-level comment — not an inline comment
+  restating that a line looks fine.
 - Merging is autonomous once the review gate above is satisfied on the
   current head commit — no separate human "go ahead" needed per PR — with
   narrow exceptions (secrets/billing/production-data changes always need
