@@ -26,7 +26,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(8);
+select plan(10);
 
 grant select, insert on public.places_refresh_calls to service_role;
 
@@ -66,6 +66,12 @@ select is(
   'authenticated has no INSERT grant on places_refresh_calls'
 );
 
+select is(
+  has_table_privilege('anon', 'public.places_refresh_calls', 'INSERT'),
+  false,
+  'anon has no INSERT grant on places_refresh_calls'
+);
+
 set local role authenticated;
 set local request.jwt.claims = '{"role":"authenticated","sub":"00000000-0000-0000-0000-000000000001"}';
 
@@ -93,6 +99,13 @@ select throws_ok(
   '42501',
   null,
   'anon cannot read places_refresh_calls directly (no grant, RLS never even evaluated)'
+);
+
+select throws_ok(
+  $$ insert into public.places_refresh_calls (profile_id) values ('00000000-0000-0000-0000-000000000002') $$,
+  '42501',
+  null,
+  'anon cannot insert into places_refresh_calls directly (no grant, RLS never even evaluated)'
 );
 
 reset role;
