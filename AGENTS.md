@@ -40,21 +40,30 @@ This file is the repo-specific workflow and validation guide to use by default.
 - When a review finding is valid, react `👍` on the finding once it is fixed
   in code and resolve the thread. Do not add a reply comment unless there is
   a specific reason to explain something the fix doesn't make obvious on its
-  own (e.g. why an alternative approach was rejected).
-- When a review finding is out of scope for the current PR (e.g. a
-  design/scale/observability concern rather than a correctness or security
-  bug in the current diff), file a GitHub issue for it — or fold it into an
-  existing open issue covering the same underlying concern — react `👍`,
-  reply pointing at the issue, and resolve the thread. Decide this
-  autonomously; do not ask before filing or merging on this basis.
-- For independent supplemental review (beyond the repo's configured
-  automated reviewer), use the `opencode` CLI. Have it fetch the diff and
-  post its own findings directly to GitHub via `gh` (inline PR review
-  comments, or a top-level PR comment if it found nothing) rather than
-  relaying findings through the assistant unfiltered — the assistant
-  verifies/dispositions findings in the open (reply + resolve, or file an
-  issue) the same as for the primary automated reviewer, not by filtering
-  them before they're visible on the PR.
+  own (e.g. why an alternative approach was rejected). When a finding is out
+  of scope for the current PR, file a GitHub issue (or fold it into an
+  existing one) instead, then react/reply/resolve the same way.
+- Supplemental independent review beyond the repo's configured automated
+  reviewer: use `opencode`, having it post its own findings directly to
+  GitHub via `gh` rather than relaying through whichever agent is driving
+  first. If it finds real issues, post those as inline comments on the
+  specific lines. If it confirms the diff is clean (nothing to flag, or a
+  prior finding is now fixed with no new issues), post a `👍` reaction on
+  the PR body or a single short top-level comment — not an inline comment
+  restating that a line looks fine.
+- Merging is autonomous once the review gate above is satisfied on the
+  current head commit — no separate human "go ahead" needed per PR — with
+  narrow exceptions (secrets/billing/production-data changes always need
+  explicit human approval; RLS/grants/security-trigger changes always need
+  a genuine independent review pass and never merge on self-review alone —
+  one clean pass is necessary but not automatically sufficient, and any fix
+  to a finding needs its own fresh pass before merging, not just the
+  original diff). Agents with their own standing policy on autonomy scope
+  should apply the stricter of that policy and this one. Work an open issue
+  queue the same way: one issue at a time, PR referencing the issue, full
+  review-gate
+  cycle before merging, post a blocker comment and move on rather than
+  spinning if stuck.
 
 ## Validation Defaults
 
