@@ -82,22 +82,25 @@ This file is the repo-specific workflow and validation guide to use by default.
     a one-off script or manual Supabase dashboard query against the live
     database).
 - Row Level Security (RLS) policies, grants, and security-relevant triggers
-  on any Supabase table are not a hard stop, but they never merge without at
-  least one adversarial-focused review pass. Checked the actual history
-  here: PR #42's `venues_attach_provider` policy — the one that let any
-  authenticated user attach an arbitrary place to any unlinked venue with no
-  identity check, later the worst finding in PR #43 — was never reviewed by
-  Codex or `opencode` at all before merging; every review on that PR was the
-  assistant's own pass. By contrast, every RLS/grants bug that *did* get an
-  independent adversarial pass in this repo's history was caught, most on
-  the first pass. The actual failure mode wasn't "one pass wasn't enough" —
-  it was "zero passes happened." So the requirement is not a minimum pass
-  count; it's that a genuine independent pass must happen at all, and it
-  must be explicitly prompted to look for an authorization bypass (who can
-  read/write which rows/columns, under what condition), not just general
-  correctness — a generic review pass is not a substitute. If that pass
-  does find something, treat the fix as a new, unreviewed change and run
-  another pass on it before merging.
+  on any Supabase table are not a hard stop, but they never merge on the
+  strength of the assistant's own review alone. PR #42's
+  `venues_attach_provider` policy — the one that let any authenticated user
+  attach an arbitrary place to any unlinked venue with no identity check,
+  later the worst finding in PR #43 — merged with zero independent review;
+  every review on that PR was the assistant's own pass, and it missed the
+  bug. This proves self-review is not reliable enough here on its own — it
+  does not prove one independent pass is always sufficient going forward,
+  so don't read this rule as capping the requirement at one pass. Follow
+  the independent-review mechanism from the rule above (the tool posts its
+  own findings directly to GitHub, not filtered through the assistant
+  first) using a prompt explicitly asking it to look for an authorization
+  bypass (who can read/write which rows/columns, under what condition), not
+  just general correctness. Any finding gets fixed and the fix gets its own
+  fresh independent pass — the same escalation PR #43 needed across four
+  rounds, each catching something the last one missed as the fix changed
+  the attack surface. Use judgment about when enough independent scrutiny
+  has actually happened; "one clean pass occurred" is necessary, not
+  automatically sufficient.
 
 ## Working An Issue Queue Autonomously
 
