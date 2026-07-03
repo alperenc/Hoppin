@@ -382,9 +382,9 @@ export default function Home() {
             ))}
           </ScrollView>
         ) : (
-          <View style={styles.emptyTrailCard}>
-            <Text style={styles.emptyTrailTitle}>No trails saved yet.</Text>
-            <Text style={styles.emptyTrailText}>Start from a city suggestion, or create a private draft from scratch.</Text>
+          <View style={[styles.card, styles.emptyTrailCard]}>
+            <Text style={styles.emptyTrailTitle}>Create your first trail.</Text>
+            <Text style={styles.emptyTrailText}>Start with an empty private draft or save a passport suggestion below.</Text>
             <Link href="/trail/new" asChild>
               <TouchableOpacity style={styles.emptyTrailAction}>
                 <Text style={styles.emptyTrailActionText}>Create trail</Text>
@@ -454,11 +454,13 @@ export default function Home() {
           <View style={styles.emptyActions}>
             <Link href="/checkin" asChild>
               <TouchableOpacity style={styles.emptyAction}>
+                <Plus color="#052e16" size={18} />
                 <Text style={styles.emptyActionText}>Start with a pour</Text>
               </TouchableOpacity>
             </Link>
             <Link href="/discover" asChild>
               <TouchableOpacity style={styles.emptySecondaryAction}>
+                <MapIcon color="#bae6fd" size={18} />
                 <Text style={styles.emptySecondaryActionText}>Discover trails</Text>
               </TouchableOpacity>
             </Link>
@@ -718,23 +720,20 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   emptyTrailCard: {
-    borderWidth: 1,
-    borderColor: '#1f3a5f',
-    borderRadius: 8,
-    padding: 14,
-    backgroundColor: '#0c1a2e',
+    alignItems: 'center',
   },
   emptyTrailTitle: {
     color: '#f8fafc',
     fontWeight: '900',
+    fontSize: 16,
   },
   emptyTrailText: {
     color: '#94a3b8',
+    textAlign: 'center',
     marginTop: 5,
     lineHeight: 20,
   },
   emptyTrailAction: {
-    alignSelf: 'flex-start',
     marginTop: 10,
     borderRadius: 8,
     backgroundColor: '#0ea5e9',
@@ -899,6 +898,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   emptyAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
     borderRadius: 8,
     backgroundColor: '#22c55e',
     paddingHorizontal: 14,
@@ -909,6 +912,10 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   emptySecondaryAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#34513d',
