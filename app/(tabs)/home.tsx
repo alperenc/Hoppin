@@ -276,10 +276,10 @@ export default function Home() {
       <View style={styles.hero}>
         <View style={styles.kickerRow}>
           <Sparkles color="#facc15" size={16} />
-          <Text style={styles.kicker}>For you</Text>
+          <Text style={styles.kicker}>Your Passport</Text>
         </View>
-        <Text style={styles.title}>{me ? `${me.displayName}'s passport` : 'Your beer passport'}</Text>
-        <Text style={styles.subtitle}>Every pour becomes a stamp on your map. Save the standouts into trails you can revisit or share.</Text>
+        <Text style={styles.title}>Every pour becomes a stamp on your map.</Text>
+        <Text style={styles.subtitle}>Save the standouts into trails you can revisit or share.</Text>
         <View style={styles.heroActions}>
           <Link href="/checkin" asChild>
             <TouchableOpacity style={styles.primaryAction}>
@@ -290,7 +290,7 @@ export default function Home() {
           <Link href="/discover" asChild>
             <TouchableOpacity style={styles.secondaryAction}>
               <MapIcon color="#bae6fd" size={18} />
-              <Text style={styles.secondaryActionText}>Explore trails</Text>
+              <Text style={styles.secondaryActionText}>Discover trails</Text>
             </TouchableOpacity>
           </Link>
         </View>
@@ -451,11 +451,18 @@ export default function Home() {
         <View style={styles.emptyCard}>
           <Text style={styles.emptyTitle}>No stamps in your passport yet.</Text>
           <Text style={styles.emptyText}>Stamp a pour to start filling your map and shaping your first trail.</Text>
-          <Link href="/checkin" asChild>
-            <TouchableOpacity style={styles.emptyAction}>
-              <Text style={styles.emptyActionText}>Start with a pour</Text>
-            </TouchableOpacity>
-          </Link>
+          <View style={styles.emptyActions}>
+            <Link href="/checkin" asChild>
+              <TouchableOpacity style={styles.emptyAction}>
+                <Text style={styles.emptyActionText}>Start with a pour</Text>
+              </TouchableOpacity>
+            </Link>
+            <Link href="/discover" asChild>
+              <TouchableOpacity style={styles.emptySecondaryAction}>
+                <Text style={styles.emptySecondaryActionText}>Discover trails</Text>
+              </TouchableOpacity>
+            </Link>
+          </View>
         </View>
       }
     />
@@ -885,6 +892,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
   },
+  emptyActions: {
+    flexDirection: 'row',
+    gap: 10,
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+  },
   emptyAction: {
     borderRadius: 8,
     backgroundColor: '#22c55e',
@@ -893,6 +906,17 @@ const styles = StyleSheet.create({
   },
   emptyActionText: {
     color: '#052e16',
+    fontWeight: '900',
+  },
+  emptySecondaryAction: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#34513d',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  emptySecondaryActionText: {
+    color: '#a7f3d0',
     fontWeight: '900',
   },
 });

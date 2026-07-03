@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Link, useFocusEffect, useRouter } from 'expo-router';
+import { Map as MapIcon } from 'lucide-react-native';
 import { PassportMapPanel } from '@/src/components/PassportMapPanel';
 import { useWebPullToRefresh } from '@/src/components/useWebPullToRefresh';
 import { CityVisit, CityVisitor, CityStamp, PassportSummary, Profile, Trail } from '@/src/types/hoppin';
@@ -251,9 +252,12 @@ export default function Passport() {
       {webRefreshIndicator}
       <View style={styles.heroRow}>
         <View style={styles.heroCopy}>
-          <Text style={styles.title}>Trails</Text>
-          <Text style={styles.subtitle}>Build beer routes from individual stamps, then share the best runs with followers.</Text>
-          <Text style={styles.handle}>{me ? me.displayName : 'Unknown'}</Text>
+          <View style={styles.kickerRow}>
+            <MapIcon color="#facc15" size={16} />
+            <Text style={styles.kicker}>Your Trails</Text>
+          </View>
+          <Text style={styles.title}>Build beer routes from individual stamps.</Text>
+          <Text style={styles.subtitle}>Share the best runs with followers.</Text>
         </View>
         <Link href="/trail/new" asChild>
           <TouchableOpacity style={styles.createButton}>
@@ -425,19 +429,36 @@ const styles = StyleSheet.create({
     backgroundColor: '#071022',
     padding: 16,
   },
+  kickerRow: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#334155',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: '#0b1220',
+    marginBottom: 12,
+  },
+  kicker: {
+    color: '#facc15',
+    fontWeight: '900',
+    fontSize: 12,
+    textTransform: 'uppercase',
+  },
   title: {
     color: '#f8fafc',
     fontSize: 32,
-    fontWeight: '700',
+    lineHeight: 38,
+    fontWeight: '900',
   },
   subtitle: {
     color: '#94a3b8',
+    fontSize: 15,
+    lineHeight: 22,
     marginTop: 8,
-  },
-  handle: {
-    color: '#9ca3af',
-    marginTop: 8,
-    marginBottom: 8,
   },
   heroRow: {
     flexDirection: 'row',
