@@ -318,7 +318,12 @@ export default function Discover() {
       {!people.length && !feed.length && !trails.length ? (
         <View style={styles.emptyCard}>
           <Text style={styles.emptyTitle}>No stamps or trails to discover yet.</Text>
-          <Text style={styles.emptyText}>Public pours and trail makers will appear here as Hoppin grows.</Text>
+          <Text style={styles.emptyText}>Public pours and trail makers will appear here as Hoppin grows. In the meantime, create your first trail.</Text>
+          <Link href="/trail/new" asChild>
+            <TouchableOpacity style={styles.emptyTrailAction}>
+              <Text style={styles.emptyTrailActionText}>Create trail</Text>
+            </TouchableOpacity>
+          </Link>
         </View>
       ) : null}
     </ScrollView>
@@ -581,5 +586,16 @@ const styles = StyleSheet.create({
     marginTop: 6,
     textAlign: 'center',
     lineHeight: 20,
+  },
+  emptyTrailAction: {
+    marginTop: 10,
+    borderRadius: 8,
+    backgroundColor: '#0ea5e9',
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  emptyTrailActionText: {
+    color: '#082f49',
+    fontWeight: '900',
   },
 });

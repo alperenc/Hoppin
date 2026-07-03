@@ -256,8 +256,8 @@ export default function Passport() {
             <MapIcon color="#facc15" size={16} />
             <Text style={styles.kicker}>Your Trails</Text>
           </View>
-          <Text style={styles.title}>Build beer routes from individual stamps.</Text>
-          <Text style={styles.subtitle}>Share the best runs with followers.</Text>
+          <Text style={styles.title}>Turn a flight of stamps into a trail worth sharing.</Text>
+          <Text style={styles.subtitle}>Pick your favorite stops and share the route with followers.</Text>
         </View>
         <Link href="/trail/new" asChild>
           <TouchableOpacity style={styles.createButton}>
