@@ -53,9 +53,9 @@ This file is the repo-specific workflow and validation guide to use by default.
   restating that a line looks fine.
 - Merging is autonomous once the review gate above is satisfied on the
   current head commit — no separate human "go ahead" needed per PR — with
-  narrow exceptions (secrets/billing/production-data changes always need
-  explicit human approval; RLS/grants/security-trigger changes always need
-  a genuine independent review pass and never merge on self-review alone —
+  narrow exceptions (secrets/billing changes always need explicit human
+  approval; RLS/grants/security-trigger changes always need a genuine
+  independent review pass and never merge on self-review alone —
   one clean pass is necessary but not automatically sufficient, and any fix
   to a finding needs its own fresh pass before merging, not just the
   original diff). Agents with their own standing policy on autonomy scope
